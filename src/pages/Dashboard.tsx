@@ -1,11 +1,22 @@
-import { useState, useEffect } from "react";
-import { GitBranch, ArrowDownUp, Eye, EyeOff, ChevronDown, ChevronUp, AlertTriangle, Clock, CheckCircle2, XCircle, Search, Download } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { GitBranch, ArrowDownUp, Eye, EyeOff, ChevronDown, ChevronUp, AlertTriangle, Clock, CheckCircle2, XCircle, Search, Download, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AppHeader from "@/components/AppHeader";
 import SpaceBackground from "@/components/SpaceBackground";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
+
+const PROGRESS_STEPS = [
+  "Conectando ao GitHub...",
+  "Lendo arquivos do repositório origem...",
+  "Verificando repositório de destino...",
+  "Limpando repositório de destino...",
+  "Copiando arquivos...",
+  "Criando nova estrutura...",
+  "Finalizando remix...",
+  "Remix concluído!",
+];
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -21,6 +32,15 @@ const Dashboard = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+
+  // Progress state
+  const [showProgress, setShowProgress] = useState(false);
+  const [progressStep, setProgressStep] = useState(0);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressStatus, setProgressStatus] = useState<"running" | "success" | "error">("running");
+  const [progressError, setProgressError] = useState("");
+  const [filesCopied, setFilesCopied] = useState(0);
+  const progressInterval = useRef<number | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -46,6 +66,60 @@ const Dashboard = () => {
     if (data) setRemixes(data);
   };
 
+  const simulateProgress = () => {
+    let step = 0;
+    let percent = 0;
+    setProgressStep(0);
+    setProgressPercent(0);
+
+    // Simulate progress steps with timing
+    const stepDurations = [2000, 3000, 2000, 3000, 8000, 3000, 2000];
+    let totalElapsed = 0;
+
+    progressInterval.current = window.setInterval(() => {
+      totalElapsed += 200;
+
+      // Calculate which step we should be on based on elapsed time
+      let accumulated = 0;
+      let newStep = 0;
+      for (let i = 0; i < stepDurations.length; i++) {
+        accumulated += stepDurations[i];
+        if (totalElapsed < accumulated) {
+          newStep = i;
+          break;
+        }
+        newStep = i + 1;
+      }
+
+      if (newStep > 6) newStep = 6;
+      step = newStep;
+      setProgressStep(step);
+
+      // Calculate percent (max 90% during simulation, 100% on completion)
+      const maxPercent = 90;
+      const stepPercent = (step / 7) * maxPercent;
+      const withinStepPercent = stepDurations[step]
+        ? ((totalElapsed - stepDurations.slice(0, step).reduce((a, b) => a + b, 0)) / stepDurations[step]) * (maxPercent / 7)
+        : 0;
+      percent = Math.min(maxPercent, stepPercent + withinStepPercent);
+      setProgressPercent(Math.round(percent));
+    }, 200);
+  };
+
+  const stopProgress = (success: boolean) => {
+    if (progressInterval.current) {
+      clearInterval(progressInterval.current);
+      progressInterval.current = null;
+    }
+    if (success) {
+      setProgressStep(7);
+      setProgressPercent(100);
+      setProgressStatus("success");
+    } else {
+      setProgressStatus("error");
+    }
+  };
+
   const handleRemix = async (e: React.FormEvent) => {
     e.preventDefault();
     if (credits <= 0) {
@@ -58,6 +132,12 @@ const Dashboard = () => {
     }
 
     setLoading(true);
+    setShowProgress(true);
+    setProgressStatus("running");
+    setProgressError("");
+    setFilesCopied(0);
+    simulateProgress();
+
     try {
       const { data, error } = await supabase.functions.invoke("create-remix", {
         body: {
@@ -71,6 +151,8 @@ const Dashboard = () => {
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
+      stopProgress(true);
+      setFilesCopied(data.files_copied || 0);
       setCooldown(25);
       toast.success("Remix criado com sucesso!");
       loadCredits();
@@ -78,11 +160,21 @@ const Dashboard = () => {
       setSourceRepo("");
       setDestRepo("");
     } catch (error: any) {
+      stopProgress(false);
+      setProgressError(error.message || "Erro ao criar remix.");
       toast.error(error.message || "Erro ao criar remix.");
       loadRemixes();
     } finally {
       setLoading(false);
     }
+  };
+
+  const closeProgress = () => {
+    setShowProgress(false);
+    setProgressStep(0);
+    setProgressPercent(0);
+    setProgressStatus("running");
+    setProgressError("");
   };
 
   const filteredRemixes = remixes.filter((r) => {
@@ -107,7 +199,7 @@ const Dashboard = () => {
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-6">
         {/* Credits Warning */}
         {credits <= 0 && (
-          <Link to="/credits" className="glass-card p-4 flex items-center gap-3 cursor-pointer">
+          <Link to="/credits" className="glass-card p-4 flex items-center gap-3 cursor-pointer block">
             <div className="w-10 h-10 rounded-xl bg-warning/20 flex items-center justify-center">
               <AlertTriangle size={20} className="text-warning" />
             </div>
@@ -116,6 +208,97 @@ const Dashboard = () => {
               <p className="text-muted-foreground text-xs">Clique para recarregar na loja</p>
             </div>
           </Link>
+        )}
+
+        {/* Progress Panel */}
+        {showProgress && (
+          <div className="glass-card p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                progressStatus === "success" ? "bg-success/15" : progressStatus === "error" ? "bg-destructive/15" : "bg-primary/15"
+              }`}>
+                {progressStatus === "running" ? (
+                  <Loader2 size={20} className="text-primary animate-spin" />
+                ) : progressStatus === "success" ? (
+                  <CheckCircle2 size={20} className="text-success" />
+                ) : (
+                  <XCircle size={20} className="text-destructive" />
+                )}
+              </div>
+              <div className="flex-1">
+                <h3 className="text-foreground font-bold text-sm">
+                  {progressStatus === "success" ? "Remix Concluído!" : progressStatus === "error" ? "Erro no Remix" : "Processando Remix..."}
+                </h3>
+                <p className="text-muted-foreground text-xs">
+                  {progressStatus === "success"
+                    ? `${filesCopied} arquivos copiados com sucesso`
+                    : progressStatus === "error"
+                    ? progressError
+                    : PROGRESS_STEPS[progressStep] || "Iniciando..."}
+                </p>
+              </div>
+              <span className={`text-sm font-bold font-mono ${
+                progressStatus === "success" ? "text-success" : progressStatus === "error" ? "text-destructive" : "text-primary"
+              }`}>
+                {progressPercent}%
+              </span>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-secondary rounded-full h-2.5 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ease-out ${
+                  progressStatus === "success"
+                    ? "bg-success"
+                    : progressStatus === "error"
+                    ? "bg-destructive"
+                    : "bg-gradient-to-r from-primary to-accent"
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+
+            {/* Step Details */}
+            <div className="space-y-2">
+              {PROGRESS_STEPS.slice(0, progressStep + 1).map((step, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  {i < progressStep ? (
+                    <CheckCircle2 size={14} className="text-success flex-shrink-0" />
+                  ) : i === progressStep && progressStatus === "running" ? (
+                    <Loader2 size={14} className="text-primary animate-spin flex-shrink-0" />
+                  ) : i === progressStep && progressStatus === "error" ? (
+                    <XCircle size={14} className="text-destructive flex-shrink-0" />
+                  ) : (
+                    <CheckCircle2 size={14} className="text-success flex-shrink-0" />
+                  )}
+                  <span className={`text-xs ${i <= progressStep ? "text-foreground" : "text-muted-foreground"}`}>
+                    {step}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Source/Dest info */}
+            <div className="bg-secondary/50 rounded-lg p-3 space-y-1">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Origem:</span>
+                <span className="text-foreground font-mono truncate">{sourceRepo.replace("https://github.com/", "") || "—"}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Destino:</span>
+                <span className="text-foreground font-mono truncate">{destRepo.replace("https://github.com/", "") || "—"}</span>
+              </div>
+            </div>
+
+            {(progressStatus === "success" || progressStatus === "error") && (
+              <button
+                onClick={closeProgress}
+                className="text-primary text-sm underline w-full text-center"
+              >
+                Fechar
+              </button>
+            )}
+          </div>
         )}
 
         {/* Remix limit info */}
@@ -204,7 +387,7 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Token Help Accordion */}
+            {/* Token Help */}
             <button
               type="button"
               onClick={() => setShowTokenHelp(!showTokenHelp)}
@@ -217,11 +400,11 @@ const Dashboard = () => {
             {showTokenHelp && (
               <div className="glass-card p-5 space-y-4">
                 {[
-                  { step: 1, title: "Acesse a página de tokens", desc: "github.com/settings/tokens/new", link: "https://github.com/settings/tokens/new" },
+                  { step: 1, title: "Acesse a página de tokens", desc: "github.com/settings/tokens/new" },
                   { step: 2, title: "Escolha o tipo de token", desc: "Clique em Generate new token (classic)" },
                   { step: 3, title: "Dê um nome ao token", desc: "No campo Note, coloque algo como jtc-gitremix" },
-                  { step: 4, title: "Marque a permissão 'repo'", desc: "Na lista de scopes, marque ☑ repo (Full control of private repositories)" },
-                  { step: 5, title: "Gere e copie o token", desc: "Clique em Generate token e copie o token ghp_..." },
+                  { step: 4, title: "Marque a permissão 'repo'", desc: "Na lista de scopes, marque ☑ repo (Full control)" },
+                  { step: 5, title: "Gere e copie o token", desc: "Clique em Generate token e copie ghp_..." },
                 ].map((item) => (
                   <div key={item.step} className="flex gap-3">
                     <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
@@ -234,7 +417,7 @@ const Dashboard = () => {
                   </div>
                 ))}
                 <div className="bg-warning/10 border border-warning/30 rounded-lg p-3">
-                  <p className="text-warning text-xs">⚠️ Importante: O token só aparece uma vez! Copie e guarde em local seguro.</p>
+                  <p className="text-warning text-xs">⚠️ O token só aparece uma vez! Copie e guarde em local seguro.</p>
                 </div>
                 <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener" className="text-primary text-sm inline-flex items-center gap-1">
                   Criar token agora ↗
@@ -269,7 +452,6 @@ const Dashboard = () => {
             </button>
           </div>
 
-          {/* Search */}
           <div className="relative mb-3">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -281,7 +463,6 @@ const Dashboard = () => {
             />
           </div>
 
-          {/* Filters */}
           <div className="flex gap-2 mb-4">
             {["all", "success", "error", "processing"].map((s) => (
               <button
@@ -298,7 +479,6 @@ const Dashboard = () => {
             ))}
           </div>
 
-          {/* List */}
           <div className="space-y-3">
             {filteredRemixes.length === 0 ? (
               <p className="text-muted-foreground text-sm text-center py-4">Nenhum remix encontrado.</p>
@@ -321,7 +501,6 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Footer */}
         <footer className="text-center text-muted-foreground text-xs py-4">
           <p>
             Sistema desenvolvido por <span className="text-foreground font-medium">Jardiel De Sousa Lopes</span> — Criador da{" "}

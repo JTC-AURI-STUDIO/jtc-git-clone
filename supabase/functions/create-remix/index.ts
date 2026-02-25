@@ -49,7 +49,6 @@ serve(async (req) => {
     const userId = claimsData.user.id;
     const { source_repo, dest_repo, github_token, same_account, dest_token } = await req.json();
 
-    // Validate inputs
     const source = parseGitHubUrl(source_repo);
     const dest = parseGitHubUrl(dest_repo);
 
@@ -85,15 +84,31 @@ serve(async (req) => {
 
     if (remixError) throw new Error("Erro ao criar registro do remix");
 
+    // We'll track steps for progress reporting
+    const steps = {
+      total: 7,
+      current: 0,
+      details: [] as string[],
+    };
+
     try {
-      // Step 1: Get all files from source repo (get default branch tree)
       const sourceHeaders = {
         Authorization: `token ${github_token}`,
         Accept: "application/vnd.github.v3+json",
         "User-Agent": "JTC-RemixHub",
       };
 
-      // Get source repo info
+      const destTokenToUse = same_account ? github_token : (dest_token || github_token);
+      const destHeaders = {
+        Authorization: `token ${destTokenToUse}`,
+        Accept: "application/vnd.github.v3+json",
+        "User-Agent": "JTC-RemixHub",
+      };
+
+      // Step 1: Get source repo info
+      steps.current = 1;
+      steps.details.push("Acessando repositório de origem...");
+
       const repoInfoRes = await fetch(`https://api.github.com/repos/${source.owner}/${source.repo}`, {
         headers: sourceHeaders,
       });
@@ -106,7 +121,10 @@ serve(async (req) => {
       const repoInfo = await repoInfoRes.json();
       const defaultBranch = repoInfo.default_branch || "main";
 
-      // Get the tree recursively
+      // Step 2: Get source tree
+      steps.current = 2;
+      steps.details.push("Lendo arquivos do repositório origem...");
+
       const treeRes = await fetch(
         `https://api.github.com/repos/${source.owner}/${source.repo}/git/trees/${defaultBranch}?recursive=1`,
         { headers: sourceHeaders }
@@ -118,19 +136,17 @@ serve(async (req) => {
       }
 
       const treeData = await treeRes.json();
+      const fileCount = treeData.tree.filter((i: any) => i.type === "blob").length;
 
-      // Get blobs content
-      const destTokenToUse = same_account ? github_token : (dest_token || github_token);
-      const destHeaders = {
-        Authorization: `token ${destTokenToUse}`,
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "JTC-RemixHub",
-      };
+      // Step 3: Check/create dest repo
+      steps.current = 3;
+      steps.details.push("Verificando repositório de destino...");
 
-      // Check if dest repo exists, if not create it
       const destRepoCheck = await fetch(`https://api.github.com/repos/${dest.owner}/${dest.repo}`, {
         headers: destHeaders,
       });
+
+      let destDefaultBranch = "main";
 
       if (destRepoCheck.status === 404) {
         // Create the destination repo
@@ -149,19 +165,39 @@ serve(async (req) => {
           throw new Error(`Erro ao criar repo destino [${createRepoRes.status}]: ${errBody}`);
         }
 
-        // Wait a moment for GitHub to init the repo
-        await new Promise((r) => setTimeout(r, 2000));
+        await createRepoRes.json();
+        await new Promise((r) => setTimeout(r, 3000));
       } else {
-        await destRepoCheck.text();
+        const destRepoInfo = await destRepoCheck.json();
+        destDefaultBranch = destRepoInfo.default_branch || "main";
       }
 
-      // Get blobs for each file and create them in destination
+      // Step 4: Delete all existing files from destination
+      steps.current = 4;
+      steps.details.push("Limpando repositório de destino...");
+
+      // Get the current tree of the dest repo
+      const destTreeRes = await fetch(
+        `https://api.github.com/repos/${dest.owner}/${dest.repo}/git/trees/${destDefaultBranch}?recursive=1`,
+        { headers: destHeaders }
+      );
+
+      if (destTreeRes.ok) {
+        // We'll just overwrite by creating a completely new tree (no base_tree), 
+        // which effectively replaces all content
+      } else {
+        await destTreeRes.text();
+      }
+
+      // Step 5: Copy blobs from source to destination
+      steps.current = 5;
+      steps.details.push(`Copiando ${fileCount} arquivos...`);
+
       const blobs: Array<{ path: string; mode: string; type: string; sha: string }> = [];
 
       for (const item of treeData.tree) {
         if (item.type !== "blob") continue;
 
-        // Get blob content from source
         const blobRes = await fetch(item.url, { headers: sourceHeaders });
         if (!blobRes.ok) {
           await blobRes.text();
@@ -169,7 +205,6 @@ serve(async (req) => {
         }
         const blobData = await blobRes.json();
 
-        // Create blob in destination
         const createBlobRes = await fetch(
           `https://api.github.com/repos/${dest.owner}/${dest.repo}/git/blobs`,
           {
@@ -196,7 +231,10 @@ serve(async (req) => {
         });
       }
 
-      // Create tree in destination
+      // Step 6: Create new tree (without base_tree = replaces everything)
+      steps.current = 6;
+      steps.details.push("Criando nova estrutura de arquivos...");
+
       const createTreeRes = await fetch(
         `https://api.github.com/repos/${dest.owner}/${dest.repo}/git/trees`,
         {
@@ -213,7 +251,7 @@ serve(async (req) => {
 
       const newTree = await createTreeRes.json();
 
-      // Create commit
+      // Create commit (orphan commit - no parents = clean history)
       const createCommitRes = await fetch(
         `https://api.github.com/repos/${dest.owner}/${dest.repo}/git/commits`,
         {
@@ -233,23 +271,14 @@ serve(async (req) => {
 
       const newCommit = await createCommitRes.json();
 
-      // Update default branch ref
-      const updateRefRes = await fetch(
-        `https://api.github.com/repos/${dest.owner}/${dest.repo}/git/refs/heads/main`,
-        {
-          method: "PATCH",
-          headers: { ...destHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sha: newCommit.sha,
-            force: true,
-          }),
-        }
-      );
+      // Step 7: Update branch ref (force push)
+      steps.current = 7;
+      steps.details.push("Finalizando remix...");
 
-      if (!updateRefRes.ok) {
-        // Try with "master" branch
-        const updateMasterRes = await fetch(
-          `https://api.github.com/repos/${dest.owner}/${dest.repo}/git/refs/heads/master`,
+      let refUpdated = false;
+      for (const branch of [destDefaultBranch, "main", "master"]) {
+        const updateRefRes = await fetch(
+          `https://api.github.com/repos/${dest.owner}/${dest.repo}/git/refs/heads/${branch}`,
           {
             method: "PATCH",
             headers: { ...destHeaders, "Content-Type": "application/json" },
@@ -259,16 +288,19 @@ serve(async (req) => {
             }),
           }
         );
-        if (!updateMasterRes.ok) {
-          const errBody = await updateMasterRes.text();
-          throw new Error(`Erro ao atualizar branch [${updateMasterRes.status}]: ${errBody}`);
+        if (updateRefRes.ok) {
+          await updateRefRes.text();
+          refUpdated = true;
+          break;
         }
-        await updateMasterRes.text();
-      } else {
         await updateRefRes.text();
       }
 
-      // Success: update remix status and deduct credit
+      if (!refUpdated) {
+        throw new Error("Erro ao atualizar branch do repositório destino");
+      }
+
+      // Success
       await supabase
         .from("remixes")
         .update({ status: "success" })
@@ -281,11 +313,15 @@ serve(async (req) => {
         .eq("user_id", userId);
 
       return new Response(
-        JSON.stringify({ success: true, remix_id: remix.id }),
+        JSON.stringify({
+          success: true,
+          remix_id: remix.id,
+          files_copied: blobs.length,
+          steps: steps.details,
+        }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     } catch (remixErr) {
-      // Update remix as error
       await supabase
         .from("remixes")
         .update({ status: "error" })
