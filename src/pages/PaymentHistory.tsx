@@ -82,22 +82,6 @@ const PaymentHistory = () => {
     setLoading(false);
   };
 
-  const handleCancel = async (payment: PaymentRow) => {
-    setCancelling(true);
-    try {
-      const { error } = await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment.id);
-      if (error) throw error;
-      
-      toast.success("Pedido cancelado permanentemente.");
-      setPayments(prev => prev.map(p => p.id === payment.id ? { ...p, status: "cancelled" } : p));
-      setSelectedPayment(null);
-    } catch {
-      toast.error("Erro ao cancelar pedido.");
-    } finally {
-      setCancelling(false);
-    }
-  };
-
   const handlePay = async (payment: PaymentRow) => {
     setCancelling(true);
     try {
@@ -264,14 +248,6 @@ const PaymentHistory = () => {
                 </div>
 
                 <div className="flex gap-3">
-                  <button
-                    onClick={() => handleCancel(selectedPayment)}
-                    disabled={cancelling}
-                    className="flex-1 py-3 rounded-xl font-semibold text-sm bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {cancelling ? <Loader2 size={16} className="animate-spin" /> : <XCircle size={16} />}
-                    Cancelar
-                  </button>
                   <button
                     onClick={() => handlePay(selectedPayment)}
                     disabled={cancelling}
