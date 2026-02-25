@@ -211,15 +211,28 @@ const Payment = () => {
     if (pollRef.current) clearInterval(pollRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
     
-    if (pixData?.payment_db_id) {
-      try {
-        await supabase.from("payments").update({ status: "cancelled" }).eq("id", pixData.payment_db_id);
-      } catch (err) {
-        console.error("Erro ao cancelar no backend:", err);
-      }
-    }
     setStatus("cancelled");
     toast.error("Pedido cancelado permanentemente.");
+
+    if (pixData?.payment_db_id) {
+      // Atualiza banco de dados local imediatamente para travar reativações
+      supabase.from("payments").update({ status: "cancelled" }).eq("id", pixData.payment_db_id).then();
+      
+      // Solicita cancelamento também no Mercado Pago, invalidando o código PIX para impedir que o usuário pague o pedido cancelado
+      if (pixData.payment_id) {
+        try {
+          await supabase.functions.invoke("check-payment", {
+            body: { 
+              action: "cancel", 
+              payment_id: pixData.payment_id, 
+              payment_db_id: pixData.payment_db_id 
+            },
+          });
+        } catch (err) {
+          console.error("Erro ao cancelar integração com MP:", err);
+        }
+      }
+    }
   };
 
   const formatTime = (secs: number) => {
@@ -435,15 +448,26 @@ const Payment = () => {
                 <div>
                   <h2 className="text-foreground font-bold text-2xl mb-2">Pedido Cancelado</h2>
                   <p className="text-muted-foreground text-sm mb-1">
-                    O pagamento foi cancelado permanentemente.
+                    O pagamento foi cancelado permanentemente e não pode ser reativado.
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    Se deseja tentar novamente, crie um novo pedido.
                   </p>
                 </div>
-                <button
-                  onClick={() => navigate("/dashboard")}
-                  className="btn-primary-glow px-8 w-full"
-                >
-                  Voltar ao Dashboard
-                </button>
+                <div className="flex flex-col gap-3 w-full">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="btn-primary-glow px-8 py-3 w-full"
+                  >
+                    Criar Novo Pedido
+                  </button>
+                  <button
+                    onClick={() => navigate("/credits")}
+                    className="py-3 rounded-xl font-semibold text-sm bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary transition-all w-full border border-border"
+                  >
+                    Voltar aos Planos
+                  </button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
