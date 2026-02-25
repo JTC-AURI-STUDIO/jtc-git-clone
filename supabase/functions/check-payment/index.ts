@@ -46,7 +46,7 @@ serve(async (req) => {
     }
 
     const userId = claimsData.user.id;
-    const { payment_id } = await req.json();
+    const { payment_id, payment_db_id } = await req.json();
 
     if (!payment_id) {
       throw new Error("payment_id required");
@@ -67,9 +67,18 @@ serve(async (req) => {
 
     const status = mpData.status;
 
-    if (status === "approved") {
-      // Find the pending payment and get credits amount
-      const { data: existingPayment } = await supabase
+    let existingPayment = null;
+
+    if (payment_db_id) {
+      const { data } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("id", payment_db_id)
+        .single();
+      existingPayment = data;
+    } else {
+      // Fallback para pedidos antigos em trânsito
+      const { data } = await supabase
         .from("payments")
         .select("*")
         .eq("user_id", userId)
@@ -77,8 +86,19 @@ serve(async (req) => {
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
+      existingPayment = data;
+    }
 
-      if (existingPayment && existingPayment.status !== "approved") {
+    if (existingPayment) {
+      // Bloqueia pagamento de pedidos permanentemente cancelados
+      if (existingPayment.status === "cancelled") {
+        return new Response(
+          JSON.stringify({ status: "cancelled", approved: false }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (status === "approved" && existingPayment.status === "pending") {
         // Update payment status
         await supabase
           .from("payments")
@@ -102,7 +122,10 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ status, approved: status === "approved" }),
+      JSON.stringify({ 
+        status: existingPayment?.status === "cancelled" ? "cancelled" : status, 
+        approved: status === "approved" && existingPayment?.status === "pending" 
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
