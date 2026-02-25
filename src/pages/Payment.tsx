@@ -28,7 +28,7 @@ const Payment = () => {
     qr_code_base64: string;
     payment_id: string;
   } | null>(null);
-  const [status, setStatus] = useState<"checking_profile" | "needs_profile" | "generating" | "waiting" | "approved" | "error">("checking_profile");
+  const [status, setStatus] = useState<"checking_profile" | "needs_profile" | "generating" | "waiting" | "approved" | "error" | "cancelled">("checking_profile");
   const [copied, setCopied] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const pollRef = useRef<number | null>(null);
@@ -47,6 +47,41 @@ const Payment = () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [user]);
+
+  // Listen to payment updates in realtime
+  useEffect(() => {
+    if (!pixData?.payment_id) return;
+    
+    const channel = supabase
+      .channel(`payment_updates_${pixData.payment_id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'payments',
+          filter: `id=eq.${pixData.payment_id}`,
+        },
+        (payload) => {
+          if (payload.new.status === 'cancelled') {
+            if (pollRef.current) clearInterval(pollRef.current);
+            if (timerRef.current) clearInterval(timerRef.current);
+            setStatus("cancelled");
+            toast.error("Pagamento cancelado.");
+          } else if (payload.new.status === 'approved') {
+            if (pollRef.current) clearInterval(pollRef.current);
+            if (timerRef.current) clearInterval(timerRef.current);
+            setStatus("approved");
+            toast.success("Pagamento aprovado! Créditos adicionados. 🎉");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [pixData?.payment_id]);
 
   // Elapsed timer
   useEffect(() => {
@@ -163,6 +198,20 @@ const Payment = () => {
       toast.success("Código PIX copiado!");
       setTimeout(() => setCopied(false), 3000);
     }
+  };
+
+  const handleCancelPayment = async () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (timerRef.current) clearInterval(timerRef.current);
+    
+    if (pixData?.payment_id) {
+      try {
+        await supabase.from("payments").update({ status: "cancelled" }).eq("id", pixData.payment_id);
+      } catch (err) {
+        console.error("Erro ao cancelar no backend:", err);
+      }
+    }
+    setStatus("cancelled");
   };
 
   const formatTime = (secs: number) => {
@@ -358,6 +407,38 @@ const Payment = () => {
               </button>
             </div>
           )}
+          
+          {/* Cancelled state */}
+          <AnimatePresence>
+            {status === "cancelled" && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="glass-card p-10 text-center space-y-6 gradient-border"
+              >
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 15, delay: 0.2 }}
+                  className="w-20 h-20 rounded-full bg-destructive/15 flex items-center justify-center mx-auto"
+                >
+                  <XCircle size={40} className="text-destructive" />
+                </motion.div>
+                <div>
+                  <h2 className="text-foreground font-bold text-2xl mb-2">Pedido Cancelado</h2>
+                  <p className="text-muted-foreground text-sm mb-1">
+                    O pagamento foi cancelado com sucesso.
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigate("/dashboard")}
+                  className="btn-primary-glow px-8 w-full"
+                >
+                  Voltar ao Dashboard
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Approved state */}
           <AnimatePresence>
@@ -502,10 +583,7 @@ const Payment = () => {
 
               {/* Cancel */}
               <button
-                onClick={() => {
-                  if (pollRef.current) clearInterval(pollRef.current);
-                  navigate("/credits");
-                }}
+                onClick={handleCancelPayment}
                 className="text-muted-foreground text-sm underline w-full text-center hover:text-foreground transition-colors"
               >
                 Cancelar pagamento
