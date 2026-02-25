@@ -30,6 +30,22 @@ const PaymentHistory = () => {
   const [loading, setLoading] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (selectedPayment && selectedPayment.status === "pending") {
+      const createdAt = new Date(selectedPayment.created_at).getTime();
+      const elapsedSecs = Math.floor((now - createdAt) / 1000);
+      if (elapsedSecs >= 300 && !cancelling) {
+        setSelectedPayment(null);
+      }
+    }
+  }, [now, selectedPayment, cancelling]);
 
   useEffect(() => {
     if (!user) return;
@@ -96,6 +112,13 @@ const PaymentHistory = () => {
 
   const getStatus = (s: string) => statusConfig[s] || statusConfig.pending;
 
+  const visiblePayments = payments.filter(p => {
+    if (p.status !== "pending") return true;
+    const createdAt = new Date(p.created_at).getTime();
+    const elapsedSecs = Math.floor((now - createdAt) / 1000);
+    return elapsedSecs < 300;
+  });
+
   return (
     <div className="min-h-screen pb-8">
       <SpaceBackground />
@@ -111,7 +134,7 @@ const PaymentHistory = () => {
           <div className="flex items-center justify-center py-20">
             <Loader2 size={28} className="text-primary animate-spin" />
           </div>
-        ) : payments.length === 0 ? (
+        ) : visiblePayments.length === 0 ? (
           <div className="glass-card p-10 text-center space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto">
               <CreditCard size={28} className="text-muted-foreground" />
@@ -123,54 +146,75 @@ const PaymentHistory = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            {payments.map((p, i) => {
-              const st = getStatus(p.status);
-              const Icon = st.icon;
-              const isPending = p.status === "pending";
+            <AnimatePresence>
+              {visiblePayments.map((p, i) => {
+                const st = getStatus(p.status);
+                const Icon = st.icon;
+                const isPending = p.status === "pending";
 
-              return (
-                <motion.div
-                  key={p.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                  onClick={() => isPending && setSelectedPayment(p)}
-                  className={`glass-card p-4 ${isPending ? "cursor-pointer glass-card-hover" : ""}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      p.status === "approved" ? "bg-[hsl(var(--success)/0.15)]" :
-                      p.status === "cancelled" ? "bg-destructive/15" :
-                      "bg-[hsl(var(--warning)/0.15)]"
-                    }`}>
-                      <Icon size={20} className={
-                        p.status === "approved" ? "text-[hsl(var(--success))]" :
-                        p.status === "cancelled" ? "text-destructive" :
-                        "text-[hsl(var(--warning))]"
-                      } />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-foreground text-sm font-semibold">
-                        {p.credits_purchased} crédito{p.credits_purchased > 1 ? "s" : ""}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        {new Date(p.created_at).toLocaleString("pt-BR")}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-foreground text-sm font-bold">
-                        R$ {Number(p.amount).toFixed(2).replace(".", ",")}
-                      </p>
-                      <span className={st.badgeClass}>{st.label}</span>
-                    </div>
-                  </div>
+                let timeString = "";
+                if (isPending) {
+                  const createdAt = new Date(p.created_at).getTime();
+                  const elapsedSecs = Math.floor((now - createdAt) / 1000);
+                  const timeLeft = Math.max(0, 300 - elapsedSecs);
+                  const m = Math.floor(timeLeft / 60);
+                  const s = timeLeft % 60;
+                  timeString = `${m}:${s.toString().padStart(2, "0")}`;
+                }
 
-                  {isPending && (
-                    <p className="text-muted-foreground text-xs mt-2 text-center">Toque para ver opções</p>
-                  )}
-                </motion.div>
-              );
-            })}
+                return (
+                  <motion.div
+                    key={p.id}
+                    layout
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ delay: i * 0.04 }}
+                    onClick={() => isPending && setSelectedPayment(p)}
+                    className={`glass-card p-4 ${isPending ? "cursor-pointer glass-card-hover" : ""}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        p.status === "approved" ? "bg-[hsl(var(--success)/0.15)]" :
+                        p.status === "cancelled" ? "bg-destructive/15" :
+                        "bg-[hsl(var(--warning)/0.15)]"
+                      }`}>
+                        <Icon size={20} className={
+                          p.status === "approved" ? "text-[hsl(var(--success))]" :
+                          p.status === "cancelled" ? "text-destructive" :
+                          "text-[hsl(var(--warning))]"
+                        } />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-foreground text-sm font-semibold">
+                          {p.credits_purchased} crédito{p.credits_purchased > 1 ? "s" : ""}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {new Date(p.created_at).toLocaleString("pt-BR")}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-foreground text-sm font-bold">
+                          R$ {Number(p.amount).toFixed(2).replace(".", ",")}
+                        </p>
+                        <div className="flex flex-col items-end gap-1 mt-1">
+                          <span className={st.badgeClass}>{st.label}</span>
+                          {isPending && (
+                            <span className="text-xs font-mono text-[hsl(var(--warning))] flex items-center gap-1">
+                              <Clock size={10} /> {timeString}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isPending && (
+                      <p className="text-muted-foreground text-xs mt-2 text-center">Toque para ver opções</p>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
 
@@ -203,6 +247,20 @@ const PaymentHistory = () => {
                   <p className="text-muted-foreground text-xs mt-1">
                     {new Date(selectedPayment.created_at).toLocaleString("pt-BR")}
                   </p>
+                  {selectedPayment.status === "pending" && (
+                    (() => {
+                      const createdAt = new Date(selectedPayment.created_at).getTime();
+                      const elapsedSecs = Math.floor((now - createdAt) / 1000);
+                      const timeLeft = Math.max(0, 300 - elapsedSecs);
+                      const m = Math.floor(timeLeft / 60);
+                      const s = timeLeft % 60;
+                      return (
+                        <p className="text-[hsl(var(--warning))] text-sm font-mono font-bold mt-2 flex items-center justify-center gap-1">
+                          <Clock size={14} /> Expira em {m}:{s.toString().padStart(2, "0")}
+                        </p>
+                      );
+                    })()
+                  )}
                 </div>
 
                 <div className="flex gap-3">
