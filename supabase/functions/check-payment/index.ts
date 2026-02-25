@@ -46,7 +46,38 @@ serve(async (req) => {
     }
 
     const userId = claimsData.user.id;
-    const { payment_id, payment_db_id } = await req.json();
+    const body = await req.json();
+    const { payment_id, payment_db_id, action } = body;
+
+    // Handle definitive cancellation request
+    if (action === "cancel") {
+      let dbUpdated = false;
+      if (payment_db_id) {
+        // Cancel locally in the DB forever
+        const { error } = await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment_db_id);
+        dbUpdated = !error;
+      }
+      
+      let mpCancelled = false;
+      if (payment_id) {
+        // Cancel explicitly in Mercado Pago to invalidate the PIX QR Code
+        try {
+          const cancelRes = await fetch(`https://api.mercadopago.com/v1/payments/${payment_id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`,
+            },
+            body: JSON.stringify({ status: "cancelled" }),
+          });
+          mpCancelled = cancelRes.ok;
+        } catch(e) { console.error("Error explicitly cancelling at MP:", e); }
+      }
+      
+      return new Response(JSON.stringify({ status: "cancelled", approved: false, dbUpdated, mpCancelled }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
 
     if (!payment_id) {
       throw new Error("payment_id required");
@@ -90,7 +121,7 @@ serve(async (req) => {
     }
 
     if (existingPayment) {
-      // Bloqueia pagamento de pedidos permanentemente cancelados
+      // Bloqueia pagamento de pedidos permanentemente cancelados e assegura que não há reativação
       if (existingPayment.status === "cancelled") {
         return new Response(
           JSON.stringify({ status: "cancelled", approved: false }),
