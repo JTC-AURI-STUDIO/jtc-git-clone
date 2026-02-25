@@ -27,6 +27,7 @@ const Payment = () => {
     qr_code: string;
     qr_code_base64: string;
     payment_id: string;
+    payment_db_id: string;
   } | null>(null);
   const [status, setStatus] = useState<"checking_profile" | "needs_profile" | "generating" | "waiting" | "approved" | "error" | "cancelled">("checking_profile");
   const [copied, setCopied] = useState(false);
@@ -50,24 +51,24 @@ const Payment = () => {
 
   // Listen to payment updates in realtime
   useEffect(() => {
-    if (!pixData?.payment_id) return;
+    if (!pixData?.payment_db_id) return;
     
     const channel = supabase
-      .channel(`payment_updates_${pixData.payment_id}`)
+      .channel(`payment_updates_${pixData.payment_db_id}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'payments',
-          filter: `id=eq.${pixData.payment_id}`,
+          filter: `id=eq.${pixData.payment_db_id}`,
         },
         (payload) => {
           if (payload.new.status === 'cancelled') {
             if (pollRef.current) clearInterval(pollRef.current);
             if (timerRef.current) clearInterval(timerRef.current);
             setStatus("cancelled");
-            toast.error("Pagamento cancelado.");
+            toast.error("Pagamento cancelado permanentemente.");
           } else if (payload.new.status === 'approved') {
             if (pollRef.current) clearInterval(pollRef.current);
             if (timerRef.current) clearInterval(timerRef.current);
@@ -81,7 +82,7 @@ const Payment = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [pixData?.payment_id]);
+  }, [pixData?.payment_db_id]);
 
   // Elapsed timer
   useEffect(() => {
@@ -158,9 +159,10 @@ const Payment = () => {
         qr_code: data.qr_code,
         qr_code_base64: data.qr_code_base64,
         payment_id: data.payment_id,
+        payment_db_id: data.payment_db_id,
       });
       setStatus("waiting");
-      startPolling(data.payment_id);
+      startPolling(data.payment_id, data.payment_db_id);
     } catch (err: any) {
       setStatus("error");
       toast.error(err.message || "Erro ao gerar PIX.");
@@ -169,19 +171,24 @@ const Payment = () => {
     }
   };
 
-  const startPolling = (paymentId: string) => {
+  const startPolling = (paymentId: string, paymentDbId: string) => {
     let attempts = 0;
     pollRef.current = window.setInterval(async () => {
       attempts++;
       try {
         const { data } = await supabase.functions.invoke("check-payment", {
-          body: { payment_id: paymentId },
+          body: { payment_id: paymentId, payment_db_id: paymentDbId },
         });
         if (data?.approved) {
           clearInterval(pollRef.current!);
           pollRef.current = null;
           setStatus("approved");
           toast.success("Pagamento aprovado! Créditos adicionados. 🎉");
+        } else if (data?.status === "cancelled") {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setStatus("cancelled");
+          toast.error("Pagamento cancelado permanentemente.");
         }
       } catch { /* ignore */ }
       if (attempts >= 120) {
@@ -204,14 +211,15 @@ const Payment = () => {
     if (pollRef.current) clearInterval(pollRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
     
-    if (pixData?.payment_id) {
+    if (pixData?.payment_db_id) {
       try {
-        await supabase.from("payments").update({ status: "cancelled" }).eq("id", pixData.payment_id);
+        await supabase.from("payments").update({ status: "cancelled" }).eq("id", pixData.payment_db_id);
       } catch (err) {
         console.error("Erro ao cancelar no backend:", err);
       }
     }
     setStatus("cancelled");
+    toast.error("Pedido cancelado permanentemente.");
   };
 
   const formatTime = (secs: number) => {
@@ -427,7 +435,7 @@ const Payment = () => {
                 <div>
                   <h2 className="text-foreground font-bold text-2xl mb-2">Pedido Cancelado</h2>
                   <p className="text-muted-foreground text-sm mb-1">
-                    O pagamento foi cancelado com sucesso.
+                    O pagamento foi cancelado permanentemente.
                   </p>
                 </div>
                 <button
