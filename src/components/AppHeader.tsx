@@ -28,7 +28,7 @@ const AppHeader = ({ credits }: AppHeaderProps) => {
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-[hsl(var(--cyan-glow))] flex items-center justify-center shadow-[0_0_15px_hsl(var(--purple-glow)/0.3)]">
               <GitBranch size={18} className="text-primary-foreground" />
             </div>
-            <span className="font-mono font-bold text-foreground text-sm">JTC RemixHub</span>
+            <span className="font-mono font-bold text-foreground text-sm">JTC GitClone</span>
           </Link>
         </div>
         <Link to="/credits" className="flex items-center gap-1.5 bg-secondary/80 backdrop-blur-sm px-3.5 py-2 rounded-full border border-border/50 hover:border-primary/30 transition-all">
