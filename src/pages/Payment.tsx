@@ -1,11 +1,19 @@
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Copy, CheckCircle2, Loader2, XCircle, Clock, ShieldCheck, QrCode } from "lucide-react";
+import { ArrowLeft, Copy, CheckCircle2, Loader2, XCircle, Clock, ShieldCheck, QrCode, User, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import SpaceBackground from "@/components/SpaceBackground";
 import { toast } from "sonner";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+
+const formatCPF = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+};
 
 const Payment = () => {
   const { user } = useAuth();
@@ -20,14 +28,20 @@ const Payment = () => {
     qr_code_base64: string;
     payment_id: string;
   } | null>(null);
-  const [status, setStatus] = useState<"generating" | "waiting" | "approved" | "error">("generating");
+  const [status, setStatus] = useState<"checking_profile" | "needs_profile" | "generating" | "waiting" | "approved" | "error">("checking_profile");
   const [copied, setCopied] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const pollRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
 
+  // Profile form state
+  const [formName, setFormName] = useState("");
+  const [formCPF, setFormCPF] = useState("");
+  const [saveAsDefault, setSaveAsDefault] = useState<boolean | null>(null);
+  const [submittingProfile, setSubmittingProfile] = useState(false);
+
   useEffect(() => {
-    if (user) generatePix();
+    if (user) checkProfile();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
@@ -41,6 +55,61 @@ const Payment = () => {
       return () => { if (timerRef.current) clearInterval(timerRef.current); };
     }
   }, [status]);
+
+  const checkProfile = async () => {
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("name, cpf")
+        .eq("user_id", user!.id)
+        .single();
+
+      if (data?.name && data?.cpf) {
+        // Profile complete, proceed to generate PIX
+        setStatus("generating");
+        generatePix();
+      } else {
+        // Pre-fill with existing data
+        if (data?.name) setFormName(data.name);
+        if (data?.cpf) setFormCPF(data.cpf);
+        setStatus("needs_profile");
+        setLoading(false);
+      }
+    } catch {
+      setStatus("needs_profile");
+      setLoading(false);
+    }
+  };
+
+  const handleProfileSubmit = async () => {
+    const cpfDigits = formCPF.replace(/\D/g, "");
+    if (!formName.trim() || cpfDigits.length !== 11) {
+      toast.error("Preencha nome completo e CPF válido (11 dígitos).");
+      return;
+    }
+    setSaveAsDefault(null); // show the question
+  };
+
+  const handleSaveChoice = async (save: boolean) => {
+    setSaveAsDefault(save);
+    setSubmittingProfile(true);
+
+    try {
+      if (save) {
+        await supabase
+          .from("profiles")
+          .update({ name: formName.trim(), cpf: formCPF.replace(/\D/g, "") })
+          .eq("user_id", user!.id);
+        toast.success("Dados salvos como padrão!");
+      }
+      setStatus("generating");
+      generatePix();
+    } catch {
+      toast.error("Erro ao salvar dados.");
+    } finally {
+      setSubmittingProfile(false);
+    }
+  };
 
   const generatePix = async () => {
     try {
@@ -102,6 +171,8 @@ const Payment = () => {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  const showSaveQuestion = saveAsDefault === null && submittingProfile === false && formName.trim() && formCPF.replace(/\D/g, "").length === 11;
+
   return (
     <div className="min-h-screen flex flex-col">
       <SpaceBackground />
@@ -125,6 +196,136 @@ const Payment = () => {
           transition={{ duration: 0.5, ease: "easeOut" }}
           className="w-full max-w-md"
         >
+          {/* Checking profile */}
+          {status === "checking_profile" && (
+            <div className="glass-card p-10 text-center space-y-6 gradient-border">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center mx-auto"
+              >
+                <Loader2 size={32} className="text-primary" />
+              </motion.div>
+              <div>
+                <h2 className="text-foreground font-bold text-xl mb-2">Verificando dados...</h2>
+                <p className="text-muted-foreground text-sm">Aguarde um momento</p>
+              </div>
+            </div>
+          )}
+
+          {/* Needs profile - form */}
+          {status === "needs_profile" && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-5"
+            >
+              {/* Warning card */}
+              <div className="glass-card p-5 gradient-border">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-[hsl(var(--warning)/0.15)] flex items-center justify-center shrink-0">
+                    <AlertTriangle size={20} className="text-[hsl(var(--warning))]" />
+                  </div>
+                  <div>
+                    <h2 className="text-foreground font-bold text-lg mb-1">Dados necessários</h2>
+                    <p className="text-muted-foreground text-sm">
+                      Para realizar uma compra via PIX, é necessário informar seu nome completo e CPF.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Form card */}
+              <div className="glass-card p-6">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                    <User size={20} className="text-primary" />
+                  </div>
+                  <h3 className="text-foreground font-bold">Preencha seus dados</h3>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-muted-foreground text-xs mb-2 uppercase tracking-wider font-medium">
+                      Nome completo
+                    </label>
+                    <input
+                      type="text"
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      placeholder="Seu nome completo"
+                      className="input-dark w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-muted-foreground text-xs mb-2 uppercase tracking-wider font-medium">
+                      CPF
+                    </label>
+                    <input
+                      type="text"
+                      value={formCPF}
+                      onChange={(e) => setFormCPF(formatCPF(e.target.value))}
+                      placeholder="000.000.000-00"
+                      className="input-dark w-full"
+                      maxLength={14}
+                    />
+                  </div>
+
+                  <AnimatePresence mode="wait">
+                    {!showSaveQuestion ? (
+                      <motion.button
+                        key="submit"
+                        onClick={handleProfileSubmit}
+                        disabled={submittingProfile}
+                        className="btn-primary-glow w-full flex items-center justify-center gap-2"
+                      >
+                        {submittingProfile ? (
+                          <>
+                            <Loader2 size={18} className="animate-spin" />
+                            Salvando...
+                          </>
+                        ) : (
+                          "Continuar para pagamento"
+                        )}
+                      </motion.button>
+                    ) : null}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              {/* Save as default question */}
+              <AnimatePresence>
+                {showSaveQuestion && saveAsDefault === null && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                    className="glass-card p-6 text-center gradient-border"
+                  >
+                    <p className="text-foreground font-semibold mb-4">
+                      Deseja utilizar essas informações como padrão para as próximas compras?
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleSaveChoice(true)}
+                        className="flex-1 py-3 rounded-xl font-semibold text-sm bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 hover:border-primary/40 transition-all"
+                      >
+                        Sim
+                      </button>
+                      <button
+                        onClick={() => handleSaveChoice(false)}
+                        className="flex-1 py-3 rounded-xl font-semibold text-sm bg-secondary text-muted-foreground border border-border hover:bg-border transition-all"
+                      >
+                        Não
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+
           {/* Generating state */}
           {status === "generating" && (
             <div className="glass-card p-10 text-center space-y-6 gradient-border">
