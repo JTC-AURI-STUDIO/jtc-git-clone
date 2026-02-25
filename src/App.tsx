@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import Credits from "./pages/Credits";
 import Payment from "./pages/Payment";
 import Profile from "./pages/Profile";
+import PaymentHistory from "./pages/PaymentHistory";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/credits" element={<Credits />} />
             <Route path="/payment" element={<Payment />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/history" element={<PaymentHistory />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

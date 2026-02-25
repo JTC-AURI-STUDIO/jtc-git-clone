@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Save, CheckCircle2, CreditCard } from "lucide-react";
+import { ArrowLeft, Save, CreditCard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "react-router-dom";
@@ -10,14 +10,10 @@ const Profile = () => {
   const { user } = useAuth();
   const [name, setName] = useState("");
   const [cpf, setCpf] = useState("");
-  const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      loadProfile();
-      loadPayments();
-    }
+    if (user) loadProfile();
   }, [user]);
 
   const loadProfile = async () => {
@@ -26,11 +22,6 @@ const Profile = () => {
       setName(data.name);
       setCpf(data.cpf || "");
     }
-  };
-
-  const loadPayments = async () => {
-    const { data } = await supabase.from("payments").select("*").eq("user_id", user!.id).order("created_at", { ascending: false });
-    if (data) setPayments(data);
   };
 
   const formatCpf = (value: string) => {
@@ -108,35 +99,6 @@ const Profile = () => {
           </button>
         </div>
 
-        {/* Payment history */}
-        <div className="glass-card p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
-              <CreditCard size={20} className="text-primary" />
-            </div>
-            <h2 className="text-foreground font-bold">Histórico de Pagamentos</h2>
-          </div>
-
-          {payments.length === 0 ? (
-            <p className="text-muted-foreground text-sm text-center py-4">Nenhum pagamento encontrado.</p>
-          ) : (
-            <div className="space-y-3">
-              {payments.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 border-t border-border pt-3">
-                  <CheckCircle2 size={18} className="text-success flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-foreground text-sm font-medium">{p.credits_purchased} crédito{p.credits_purchased > 1 ? "s" : ""}</p>
-                    <p className="text-muted-foreground text-xs">{new Date(p.created_at).toLocaleString("pt-BR")}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-foreground text-sm font-semibold">R$ {Number(p.amount).toFixed(2).replace(".", ",")}</p>
-                    <span className="status-badge-success">{p.status === "approved" ? "Aprovado" : p.status}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </main>
     </div>
   );

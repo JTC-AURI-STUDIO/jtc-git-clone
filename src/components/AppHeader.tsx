@@ -55,6 +55,9 @@ const AppHeader = ({ credits }: AppHeaderProps) => {
                 <Link to="/credits" className="block px-3 py-2.5 rounded-xl text-foreground hover:bg-primary/10 hover:text-primary transition-all" onClick={() => setMenuOpen(false)}>
                   🛒 Loja de Créditos
                 </Link>
+                <Link to="/history" className="block px-3 py-2.5 rounded-xl text-foreground hover:bg-primary/10 hover:text-primary transition-all" onClick={() => setMenuOpen(false)}>
+                  📋 Histórico de Pagamentos
+                </Link>
                 <Link to="/profile" className="block px-3 py-2.5 rounded-xl text-foreground hover:bg-primary/10 hover:text-primary transition-all" onClick={() => setMenuOpen(false)}>
                   👤 Perfil
                 </Link>
