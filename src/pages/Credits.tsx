@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { ShoppingCart, Minus, Plus, Coins } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ShoppingCart, Minus, Plus, Coins, Copy, CheckCircle2, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AppHeader from "@/components/AppHeader";
@@ -14,9 +14,20 @@ const Credits = () => {
   const [credits, setCredits] = useState(0);
   const [quantity, setQuantity] = useState(10);
   const [loading, setLoading] = useState(false);
+  const [pixData, setPixData] = useState<{
+    qr_code: string;
+    qr_code_base64: string;
+    payment_id: string;
+  } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (user) loadCredits();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, [user]);
 
   const loadCredits = async () => {
@@ -29,23 +40,66 @@ const Credits = () => {
   const handleBuy = async () => {
     setLoading(true);
     try {
-      // Record payment
-      await supabase.from("payments").insert({
-        user_id: user!.id,
-        amount: quantity * PRICE_PER_CREDIT,
-        credits_purchased: quantity,
-        status: "approved",
+      const { data, error } = await supabase.functions.invoke("create-pix-payment", {
+        body: { quantity },
       });
 
-      // Update credits
-      await supabase.from("credits").update({ balance: credits + quantity }).eq("user_id", user!.id);
+      if (error) throw new Error(error.message);
+      if (data.error) throw new Error(data.error);
 
-      setCredits(credits + quantity);
-      toast.success(`${quantity} créditos adicionados!`);
-    } catch {
-      toast.error("Erro ao processar compra.");
+      setPixData({
+        qr_code: data.qr_code,
+        qr_code_base64: data.qr_code_base64,
+        payment_id: data.payment_id,
+      });
+
+      // Start polling for payment status
+      startPolling(data.payment_id);
+      toast.success("PIX gerado! Escaneie o QR Code ou copie o código.");
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao gerar PIX.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startPolling = (paymentId: string) => {
+    setChecking(true);
+    let attempts = 0;
+    pollRef.current = window.setInterval(async () => {
+      attempts++;
+      try {
+        const { data } = await supabase.functions.invoke("check-payment", {
+          body: { payment_id: paymentId },
+        });
+
+        if (data?.approved) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setChecking(false);
+          setPixData(null);
+          loadCredits();
+          toast.success("Pagamento aprovado! Créditos adicionados.");
+        }
+      } catch {
+        // Ignore polling errors
+      }
+
+      if (attempts >= 60) {
+        // Stop after 5 minutes
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setChecking(false);
+      }
+    }, 5000);
+  };
+
+  const copyPixCode = async () => {
+    if (pixData?.qr_code) {
+      await navigator.clipboard.writeText(pixData.qr_code);
+      setCopied(true);
+      toast.success("Código PIX copiado!");
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -57,6 +111,69 @@ const Credits = () => {
       <main className="pt-20 px-4 max-w-lg mx-auto">
         <h1 className="text-foreground font-bold text-xl mb-1">Loja de Créditos</h1>
         <p className="text-muted-foreground text-sm mb-6">Adquira créditos para utilizar nos seus remixes.</p>
+
+        {/* PIX Payment Modal */}
+        {pixData && (
+          <div className="glass-card p-6 mb-6 space-y-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-success/15 flex items-center justify-center">
+                <Coins size={20} className="text-success" />
+              </div>
+              <div>
+                <h2 className="text-foreground font-bold">Pagamento PIX</h2>
+                <p className="text-muted-foreground text-xs">Escaneie ou copie o código</p>
+              </div>
+            </div>
+
+            {pixData.qr_code_base64 && (
+              <div className="flex justify-center bg-foreground rounded-xl p-4">
+                <img
+                  src={`data:image/png;base64,${pixData.qr_code_base64}`}
+                  alt="QR Code PIX"
+                  className="w-48 h-48"
+                />
+              </div>
+            )}
+
+            {pixData.qr_code && (
+              <div>
+                <label className="block text-primary text-xs mb-1.5">Código PIX (Copia e Cola)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={pixData.qr_code}
+                    readOnly
+                    className="input-dark flex-1 text-xs"
+                  />
+                  <button
+                    onClick={copyPixCode}
+                    className="px-3 py-2 bg-primary rounded-lg text-primary-foreground"
+                  >
+                    {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {checking && (
+              <div className="flex items-center justify-center gap-2 text-primary text-sm">
+                <Loader2 size={16} className="animate-spin" />
+                Aguardando pagamento...
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setPixData(null);
+                if (pollRef.current) clearInterval(pollRef.current);
+                setChecking(false);
+              }}
+              className="text-muted-foreground text-sm underline w-full text-center"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
 
         <div className="glass-card p-6 space-y-6">
           <div className="flex items-center justify-between">
@@ -130,15 +247,14 @@ const Credits = () => {
           {/* Buy button */}
           <button
             onClick={handleBuy}
-            disabled={loading}
+            disabled={loading || !!pixData}
             className="btn-primary-glow w-full flex items-center justify-center gap-2 disabled:opacity-50"
           >
             <ShoppingCart size={18} />
-            {loading ? "Processando..." : `Comprar ${quantity} créditos`}
+            {loading ? "Gerando PIX..." : `Comprar ${quantity} créditos`}
           </button>
         </div>
 
-        {/* Footer */}
         <footer className="text-center text-muted-foreground text-xs py-6">
           <p>
             Sistema desenvolvido por <span className="text-foreground font-medium">Jardiel De Sousa Lopes</span> — Criador da{" "}

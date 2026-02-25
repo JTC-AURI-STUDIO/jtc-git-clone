@@ -59,25 +59,27 @@ const Dashboard = () => {
 
     setLoading(true);
     try {
-      // Deduct credit
-      await supabase.from("credits").update({ balance: credits - 1 }).eq("user_id", user!.id);
-
-      // Create remix record
-      await supabase.from("remixes").insert({
-        user_id: user!.id,
-        source_repo: sourceRepo,
-        destination_repo: destRepo,
-        status: "success",
+      const { data, error } = await supabase.functions.invoke("create-remix", {
+        body: {
+          source_repo: sourceRepo,
+          dest_repo: destRepo,
+          github_token: token,
+          same_account: sameAccount,
+        },
       });
 
-      setCredits(credits - 1);
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+
       setCooldown(25);
       toast.success("Remix criado com sucesso!");
+      loadCredits();
       loadRemixes();
       setSourceRepo("");
       setDestRepo("");
     } catch (error: any) {
-      toast.error("Erro ao criar remix.");
+      toast.error(error.message || "Erro ao criar remix.");
+      loadRemixes();
     } finally {
       setLoading(false);
     }
