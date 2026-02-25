@@ -19,16 +19,21 @@ const Auth = () => {
 
     try {
       if (tab === "register") {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: { name },
-            emailRedirectTo: window.location.origin,
           },
         });
         if (error) throw error;
-        toast.success("Conta criada! Verifique seu email para confirmar.");
+        if (data.session) {
+          toast.success("Conta criada com sucesso!");
+          navigate("/dashboard");
+        } else {
+          toast.success("Conta criada! Agora faça login.");
+          setTab("login");
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
