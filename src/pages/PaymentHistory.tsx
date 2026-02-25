@@ -72,11 +72,11 @@ const PaymentHistory = () => {
       const { error } = await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment.id);
       if (error) throw error;
       
-      toast.success("Pagamento cancelado.");
+      toast.success("Pedido cancelado permanentemente.");
       setPayments(prev => prev.map(p => p.id === payment.id ? { ...p, status: "cancelled" } : p));
       setSelectedPayment(null);
     } catch {
-      toast.error("Erro ao cancelar pagamento.");
+      toast.error("Erro ao cancelar pedido.");
     } finally {
       setCancelling(false);
     }
@@ -85,10 +85,11 @@ const PaymentHistory = () => {
   const handlePay = async (payment: PaymentRow) => {
     setCancelling(true);
     try {
+      // Cancela o pedido antigo garantindo a permanência como cancelado, e obriga a criar novo pedido
       await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment.id);
       navigate(`/payment?quantity=${payment.credits_purchased}`);
     } catch {
-      toast.error("Erro ao iniciar novo pagamento.");
+      toast.error("Erro ao gerar novo pedido de pagamento.");
       setCancelling(false);
     }
   };
@@ -219,7 +220,7 @@ const PaymentHistory = () => {
                     className="flex-1 py-3 rounded-xl font-semibold text-sm bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {cancelling ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
-                    Pagar
+                    Novo Pedido
                   </button>
                 </div>
               </motion.div>
