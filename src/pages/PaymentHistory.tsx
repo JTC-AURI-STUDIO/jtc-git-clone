@@ -29,7 +29,7 @@ const PaymentHistory = () => {
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -41,11 +41,11 @@ const PaymentHistory = () => {
     if (selectedPayment && selectedPayment.status === "pending") {
       const createdAt = new Date(selectedPayment.created_at).getTime();
       const elapsedSecs = Math.floor((now - createdAt) / 1000);
-      if (elapsedSecs >= 300 && !cancelling) {
+      if (elapsedSecs >= 300 && !processing) {
         setSelectedPayment(null);
       }
     }
-  }, [now, selectedPayment, cancelling]);
+  }, [now, selectedPayment, processing]);
 
   useEffect(() => {
     if (!user) return;
@@ -83,14 +83,14 @@ const PaymentHistory = () => {
   };
 
   const handlePay = async (payment: PaymentRow) => {
-    setCancelling(true);
+    setProcessing(true);
     try {
-      // Cancela o pedido antigo garantindo a permanência como cancelado, e obriga a criar novo pedido
+      // Cancela o pedido antigo garantindo a permanência como cancelado, e obriga a redirecionar para a tela de pagamento com o QR code novamente
       await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment.id);
       navigate(`/payment?quantity=${payment.credits_purchased}`);
     } catch {
-      toast.error("Erro ao gerar novo pedido de pagamento.");
-      setCancelling(false);
+      toast.error("Erro ao processar pagamento.");
+      setProcessing(false);
     }
   };
 
@@ -210,7 +210,7 @@ const PaymentHistory = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
-              onClick={() => !cancelling && setSelectedPayment(null)}
+              onClick={() => !processing && setSelectedPayment(null)}
             >
               <motion.div
                 initial={{ y: 100, opacity: 0 }}
@@ -250,11 +250,11 @@ const PaymentHistory = () => {
                 <div className="flex gap-3">
                   <button
                     onClick={() => handlePay(selectedPayment)}
-                    disabled={cancelling}
+                    disabled={processing}
                     className="flex-1 py-3 rounded-xl font-semibold text-sm bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    {cancelling ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
-                    Novo Pedido
+                    {processing ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
+                    Pagar Agora
                   </button>
                 </div>
               </motion.div>
