@@ -20,7 +20,7 @@ interface PaymentRow {
 const statusConfig: Record<string, { label: string; icon: typeof Clock; badgeClass: string }> = {
   pending: { label: "Aguardando", icon: Clock, badgeClass: "status-badge-processing" },
   approved: { label: "Aprovado", icon: CheckCircle2, badgeClass: "status-badge-success" },
-  cancelled: { label: "Cancelado", icon: XCircle, badgeClass: "status-badge-error" },
+  cancelled: { label: "Pedido cancelado", icon: XCircle, badgeClass: "status-badge-error" },
 };
 
 const PaymentHistory = () => {
@@ -32,11 +32,31 @@ const PaymentHistory = () => {
   const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
-    if (user) loadPayments();
+    if (!user) return;
+    
+    loadPayments(true);
+
+    const channel = supabase
+      .channel('payments_history_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'payments', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          loadPayments(false);
+          if (payload.eventType === 'UPDATE' && payload.new.status === 'cancelled') {
+             setSelectedPayment(prev => prev?.id === payload.new.id ? null : prev);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
-  const loadPayments = async () => {
-    setLoading(true);
+  const loadPayments = async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     const { data } = await supabase
       .from("payments")
       .select("*")
@@ -49,10 +69,12 @@ const PaymentHistory = () => {
   const handleCancel = async (payment: PaymentRow) => {
     setCancelling(true);
     try {
-      await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment.id);
+      const { error } = await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment.id);
+      if (error) throw error;
+      
       toast.success("Pagamento cancelado.");
+      setPayments(prev => prev.map(p => p.id === payment.id ? { ...p, status: "cancelled" } : p));
       setSelectedPayment(null);
-      loadPayments();
     } catch {
       toast.error("Erro ao cancelar pagamento.");
     } finally {
@@ -60,8 +82,15 @@ const PaymentHistory = () => {
     }
   };
 
-  const handlePay = (payment: PaymentRow) => {
-    navigate(`/payment?quantity=${payment.credits_purchased}`);
+  const handlePay = async (payment: PaymentRow) => {
+    setCancelling(true);
+    try {
+      await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment.id);
+      navigate(`/payment?quantity=${payment.credits_purchased}`);
+    } catch {
+      toast.error("Erro ao iniciar novo pagamento.");
+      setCancelling(false);
+    }
   };
 
   const getStatus = (s: string) => statusConfig[s] || statusConfig.pending;
@@ -186,9 +215,10 @@ const PaymentHistory = () => {
                   </button>
                   <button
                     onClick={() => handlePay(selectedPayment)}
-                    className="flex-1 py-3 rounded-xl font-semibold text-sm bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all flex items-center justify-center gap-2"
+                    disabled={cancelling}
+                    className="flex-1 py-3 rounded-xl font-semibold text-sm bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    <CreditCard size={16} />
+                    {cancelling ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
                     Pagar
                   </button>
                 </div>
