@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { GitBranch, ArrowDownUp, Eye, EyeOff, ChevronDown, ChevronUp, AlertTriangle, Clock, CheckCircle2, XCircle, Search, Download, Loader2, Zap } from "lucide-react";
+import { GitBranch, ArrowDownUp, Eye, EyeOff, ChevronDown, ChevronUp, AlertTriangle, Clock, CheckCircle2, XCircle, Search, Download, Loader2, Zap, Github } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AppHeader from "@/components/AppHeader";
@@ -585,8 +585,12 @@ const Dashboard = () => {
           </div>
         </motion.div>
 
-        <footer className="text-center text-muted-foreground text-xs py-4">
-          <p>
+        <footer className="flex flex-col items-center gap-6 py-8">
+          <div className="flex items-center gap-2 text-muted-foreground opacity-30 hover:opacity-100 transition-opacity duration-300">
+            <Github size={24} className="text-foreground" />
+            <span className="text-sm font-medium text-foreground">Conectado ao GitHub</span>
+          </div>
+          <p className="text-center text-muted-foreground text-xs">
             Sistema desenvolvido por <span className="text-foreground font-medium">Jardiel De Sousa Lopes</span> — Criador da{" "}
             <span className="text-primary">JTC</span>
           </p>
