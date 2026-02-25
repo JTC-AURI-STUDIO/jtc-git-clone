@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { GitBranch, ArrowDownUp, Eye, EyeOff, ChevronDown, ChevronUp, AlertTriangle, Clock, CheckCircle2, XCircle, Search, Download, Loader2 } from "lucide-react";
+import { GitBranch, ArrowDownUp, Eye, EyeOff, ChevronDown, ChevronUp, AlertTriangle, Clock, CheckCircle2, XCircle, Search, Download, Loader2, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AppHeader from "@/components/AppHeader";
 import SpaceBackground from "@/components/SpaceBackground";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 
 const PROGRESS_STEPS = [
   "Conectando ao GitHub...",
@@ -17,6 +18,8 @@ const PROGRESS_STEPS = [
   "Finalizando remix...",
   "Remix concluído!",
 ];
+
+const MAX_REMIXES_PER_HOUR = 3;
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -31,7 +34,11 @@ const Dashboard = () => {
   const [searchFilter, setSearchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+
+  // Rate limit
+  const [remixesUsed, setRemixesUsed] = useState(0);
+  const [nextRefresh, setNextRefresh] = useState<Date | null>(null);
+  const [refreshCountdown, setRefreshCountdown] = useState("");
 
   // Progress state
   const [showProgress, setShowProgress] = useState(false);
@@ -46,15 +53,31 @@ const Dashboard = () => {
     if (user) {
       loadCredits();
       loadRemixes();
+      loadRemixesUsedThisHour();
     }
   }, [user]);
 
+  // Countdown timer for next remix refresh
   useEffect(() => {
-    if (cooldown > 0) {
-      const timer = setTimeout(() => setCooldown(cooldown - 1), 60000);
-      return () => clearTimeout(timer);
+    if (!nextRefresh || remixesUsed < MAX_REMIXES_PER_HOUR) {
+      setRefreshCountdown("");
+      return;
     }
-  }, [cooldown]);
+    const interval = setInterval(() => {
+      const now = new Date();
+      const diff = nextRefresh.getTime() - now.getTime();
+      if (diff <= 0) {
+        setRefreshCountdown("");
+        loadRemixesUsedThisHour();
+        clearInterval(interval);
+        return;
+      }
+      const mins = Math.floor(diff / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      setRefreshCountdown(`${mins}:${secs.toString().padStart(2, "0")}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [nextRefresh, remixesUsed]);
 
   const loadCredits = async () => {
     const { data } = await supabase.from("credits").select("balance").eq("user_id", user!.id).single();
@@ -66,36 +89,48 @@ const Dashboard = () => {
     if (data) setRemixes(data);
   };
 
+  const loadRemixesUsedThisHour = async () => {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("remixes")
+      .select("created_at")
+      .eq("user_id", user!.id)
+      .gte("created_at", oneHourAgo)
+      .order("created_at", { ascending: true });
+
+    const count = data?.length || 0;
+    setRemixesUsed(count);
+
+    if (count >= MAX_REMIXES_PER_HOUR && data && data.length > 0) {
+      // Next refresh = oldest remix in the hour window + 1 hour
+      const oldest = new Date(data[0].created_at);
+      setNextRefresh(new Date(oldest.getTime() + 60 * 60 * 1000));
+    } else {
+      setNextRefresh(null);
+    }
+  };
+
+  const remixesRemaining = Math.max(0, MAX_REMIXES_PER_HOUR - remixesUsed);
+
   const simulateProgress = () => {
     let step = 0;
     let percent = 0;
     setProgressStep(0);
     setProgressPercent(0);
-
-    // Simulate progress steps with timing
     const stepDurations = [2000, 3000, 2000, 3000, 8000, 3000, 2000];
     let totalElapsed = 0;
-
     progressInterval.current = window.setInterval(() => {
       totalElapsed += 200;
-
-      // Calculate which step we should be on based on elapsed time
       let accumulated = 0;
       let newStep = 0;
       for (let i = 0; i < stepDurations.length; i++) {
         accumulated += stepDurations[i];
-        if (totalElapsed < accumulated) {
-          newStep = i;
-          break;
-        }
+        if (totalElapsed < accumulated) { newStep = i; break; }
         newStep = i + 1;
       }
-
       if (newStep > 6) newStep = 6;
       step = newStep;
       setProgressStep(step);
-
-      // Calculate percent (max 90% during simulation, 100% on completion)
       const maxPercent = 90;
       const stepPercent = (step / 7) * maxPercent;
       const withinStepPercent = stepDurations[step]
@@ -107,29 +142,16 @@ const Dashboard = () => {
   };
 
   const stopProgress = (success: boolean) => {
-    if (progressInterval.current) {
-      clearInterval(progressInterval.current);
-      progressInterval.current = null;
-    }
-    if (success) {
-      setProgressStep(7);
-      setProgressPercent(100);
-      setProgressStatus("success");
-    } else {
-      setProgressStatus("error");
-    }
+    if (progressInterval.current) { clearInterval(progressInterval.current); progressInterval.current = null; }
+    if (success) { setProgressStep(7); setProgressPercent(100); setProgressStatus("success"); }
+    else { setProgressStatus("error"); }
   };
 
   const handleRemix = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (credits <= 0) {
-      toast.error("Sem créditos! Compre mais na loja.");
-      return;
-    }
-    if (!token.trim()) {
-      toast.error("Informe seu token GitHub.");
-      return;
-    }
+    if (credits <= 0) { toast.error("Sem créditos! Compre mais na loja."); return; }
+    if (remixesRemaining <= 0) { toast.error("Limite de remixes por hora atingido! Aguarde."); return; }
+    if (!token.trim()) { toast.error("Informe seu token GitHub."); return; }
 
     setLoading(true);
     setShowProgress(true);
@@ -140,23 +162,16 @@ const Dashboard = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke("create-remix", {
-        body: {
-          source_repo: sourceRepo,
-          dest_repo: destRepo,
-          github_token: token,
-          same_account: sameAccount,
-        },
+        body: { source_repo: sourceRepo, dest_repo: destRepo, github_token: token, same_account: sameAccount },
       });
-
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
-
       stopProgress(true);
       setFilesCopied(data.files_copied || 0);
-      setCooldown(25);
       toast.success("Remix criado com sucesso!");
       loadCredits();
       loadRemixes();
+      loadRemixesUsedThisHour();
       setSourceRepo("");
       setDestRepo("");
     } catch (error: any) {
@@ -164,6 +179,7 @@ const Dashboard = () => {
       setProgressError(error.message || "Erro ao criar remix.");
       toast.error(error.message || "Erro ao criar remix.");
       loadRemixes();
+      loadRemixesUsedThisHour();
     } finally {
       setLoading(false);
     }
@@ -185,9 +201,9 @@ const Dashboard = () => {
 
   const statusIcon = (status: string) => {
     switch (status) {
-      case "success": return <CheckCircle2 size={18} className="text-success" />;
+      case "success": return <CheckCircle2 size={18} className="text-[hsl(var(--success))]" />;
       case "error": return <XCircle size={18} className="text-destructive" />;
-      default: return <Clock size={18} className="text-warning" />;
+      default: return <Clock size={18} className="text-[hsl(var(--warning))]" />;
     }
   };
 
@@ -196,127 +212,167 @@ const Dashboard = () => {
       <SpaceBackground />
       <AppHeader credits={credits} />
 
-      <main className="pt-20 px-4 max-w-lg mx-auto space-y-6">
+      <main className="pt-20 px-4 max-w-lg mx-auto space-y-5">
+        {/* Remix Slots */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Zap size={18} className="text-primary" />
+              <span className="text-foreground font-semibold text-sm">Remixes Disponíveis</span>
+            </div>
+            {refreshCountdown && (
+              <span className="text-xs font-mono text-[hsl(var(--warning))] pulse-soft">
+                ⏳ {refreshCountdown}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {Array.from({ length: MAX_REMIXES_PER_HOUR }).map((_, i) => (
+              <div
+                key={i}
+                className={`flex-1 h-2.5 rounded-full transition-all duration-500 ${
+                  i < remixesRemaining
+                    ? "bg-gradient-to-r from-primary to-[hsl(var(--cyan-glow))]"
+                    : "bg-secondary"
+                }`}
+              />
+            ))}
+          </div>
+          <p className="text-muted-foreground text-xs mt-2">
+            {remixesRemaining > 0
+              ? `${remixesRemaining} de ${MAX_REMIXES_PER_HOUR} remixes disponíveis nesta hora`
+              : "Limite atingido! Aguarde o próximo ciclo."}
+          </p>
+        </motion.div>
+
         {/* Credits Warning */}
         {credits <= 0 && (
-          <Link to="/credits" className="glass-card p-4 flex items-center gap-3 cursor-pointer block">
-            <div className="w-10 h-10 rounded-xl bg-warning/20 flex items-center justify-center">
-              <AlertTriangle size={20} className="text-warning" />
-            </div>
-            <div className="flex-1">
-              <p className="text-foreground font-semibold text-sm">Sem créditos!</p>
-              <p className="text-muted-foreground text-xs">Clique para recarregar na loja</p>
-            </div>
-          </Link>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+            <Link to="/credits" className="glass-card p-4 flex items-center gap-3 cursor-pointer block gradient-border">
+              <div className="w-10 h-10 rounded-xl bg-[hsl(var(--warning)/0.15)] flex items-center justify-center">
+                <AlertTriangle size={20} className="text-[hsl(var(--warning))]" />
+              </div>
+              <div className="flex-1">
+                <p className="text-foreground font-semibold text-sm">Sem créditos!</p>
+                <p className="text-muted-foreground text-xs">Clique para recarregar na loja</p>
+              </div>
+            </Link>
+          </motion.div>
         )}
 
         {/* Progress Panel */}
-        {showProgress && (
-          <div className="glass-card p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                progressStatus === "success" ? "bg-success/15" : progressStatus === "error" ? "bg-destructive/15" : "bg-primary/15"
-              }`}>
-                {progressStatus === "running" ? (
-                  <Loader2 size={20} className="text-primary animate-spin" />
-                ) : progressStatus === "success" ? (
-                  <CheckCircle2 size={20} className="text-success" />
-                ) : (
-                  <XCircle size={20} className="text-destructive" />
-                )}
-              </div>
-              <div className="flex-1">
-                <h3 className="text-foreground font-bold text-sm">
-                  {progressStatus === "success" ? "Remix Concluído!" : progressStatus === "error" ? "Erro no Remix" : "Processando Remix..."}
-                </h3>
-                <p className="text-muted-foreground text-xs">
-                  {progressStatus === "success"
-                    ? `${filesCopied} arquivos copiados com sucesso`
-                    : progressStatus === "error"
-                    ? progressError
-                    : PROGRESS_STEPS[progressStep] || "Iniciando..."}
-                </p>
-              </div>
-              <span className={`text-sm font-bold font-mono ${
-                progressStatus === "success" ? "text-success" : progressStatus === "error" ? "text-destructive" : "text-primary"
-              }`}>
-                {progressPercent}%
-              </span>
-            </div>
-
-            {/* Progress Bar */}
-            <div className="w-full bg-secondary rounded-full h-2.5 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ease-out ${
-                  progressStatus === "success"
-                    ? "bg-success"
-                    : progressStatus === "error"
-                    ? "bg-destructive"
-                    : "bg-gradient-to-r from-primary to-accent"
-                }`}
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-
-            {/* Step Details */}
-            <div className="space-y-2">
-              {PROGRESS_STEPS.slice(0, progressStep + 1).map((step, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  {i < progressStep ? (
-                    <CheckCircle2 size={14} className="text-success flex-shrink-0" />
-                  ) : i === progressStep && progressStatus === "running" ? (
-                    <Loader2 size={14} className="text-primary animate-spin flex-shrink-0" />
-                  ) : i === progressStep && progressStatus === "error" ? (
-                    <XCircle size={14} className="text-destructive flex-shrink-0" />
+        <AnimatePresence>
+          {showProgress && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              className="glass-card p-6 space-y-4 gradient-border"
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  progressStatus === "success" ? "bg-[hsl(var(--success)/0.15)]" : progressStatus === "error" ? "bg-destructive/15" : "bg-primary/15"
+                }`}>
+                  {progressStatus === "running" ? (
+                    <Loader2 size={20} className="text-primary animate-spin" />
+                  ) : progressStatus === "success" ? (
+                    <CheckCircle2 size={20} className="text-[hsl(var(--success))]" />
                   ) : (
-                    <CheckCircle2 size={14} className="text-success flex-shrink-0" />
+                    <XCircle size={20} className="text-destructive" />
                   )}
-                  <span className={`text-xs ${i <= progressStep ? "text-foreground" : "text-muted-foreground"}`}>
-                    {step}
-                  </span>
                 </div>
-              ))}
-            </div>
-
-            {/* Source/Dest info */}
-            <div className="bg-secondary/50 rounded-lg p-3 space-y-1">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-muted-foreground">Origem:</span>
-                <span className="text-foreground font-mono truncate">{sourceRepo.replace("https://github.com/", "") || "—"}</span>
+                <div className="flex-1">
+                  <h3 className="text-foreground font-bold text-sm">
+                    {progressStatus === "success" ? "Remix Concluído! 🎉" : progressStatus === "error" ? "Erro no Remix" : "Processando Remix..."}
+                  </h3>
+                  <p className="text-muted-foreground text-xs">
+                    {progressStatus === "success"
+                      ? `${filesCopied} arquivos copiados com sucesso`
+                      : progressStatus === "error"
+                      ? progressError
+                      : PROGRESS_STEPS[progressStep] || "Iniciando..."}
+                  </p>
+                </div>
+                <span className={`text-sm font-bold font-mono ${
+                  progressStatus === "success" ? "text-[hsl(var(--success))]" : progressStatus === "error" ? "text-destructive" : "text-primary"
+                }`}>
+                  {progressPercent}%
+                </span>
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-muted-foreground">Destino:</span>
-                <span className="text-foreground font-mono truncate">{destRepo.replace("https://github.com/", "") || "—"}</span>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-secondary rounded-full h-3 overflow-hidden">
+                <motion.div
+                  className={`h-full rounded-full ${
+                    progressStatus === "success"
+                      ? "bg-[hsl(var(--success))]"
+                      : progressStatus === "error"
+                      ? "bg-destructive"
+                      : "bg-gradient-to-r from-primary via-[hsl(var(--pink-glow))] to-[hsl(var(--cyan-glow))]"
+                  }`}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progressPercent}%` }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                />
               </div>
-            </div>
 
-            {(progressStatus === "success" || progressStatus === "error") && (
-              <button
-                onClick={closeProgress}
-                className="text-primary text-sm underline w-full text-center"
-              >
-                Fechar
-              </button>
-            )}
-          </div>
-        )}
+              {/* Step Details */}
+              <div className="space-y-2">
+                {PROGRESS_STEPS.slice(0, progressStep + 1).map((step, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex items-center gap-2"
+                  >
+                    {i < progressStep ? (
+                      <CheckCircle2 size={14} className="text-[hsl(var(--success))] flex-shrink-0" />
+                    ) : i === progressStep && progressStatus === "running" ? (
+                      <Loader2 size={14} className="text-primary animate-spin flex-shrink-0" />
+                    ) : i === progressStep && progressStatus === "error" ? (
+                      <XCircle size={14} className="text-destructive flex-shrink-0" />
+                    ) : (
+                      <CheckCircle2 size={14} className="text-[hsl(var(--success))] flex-shrink-0" />
+                    )}
+                    <span className={`text-xs ${i <= progressStep ? "text-foreground" : "text-muted-foreground"}`}>
+                      {step}
+                    </span>
+                  </motion.div>
+                ))}
+              </div>
 
-        {/* Remix limit info */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>0/3 remixes disponíveis nesta hora</span>
-          <span>Ctrl+Enter para iniciar</span>
-        </div>
+              {/* Source/Dest info */}
+              <div className="bg-secondary/50 rounded-xl p-3 space-y-1">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Origem:</span>
+                  <span className="text-foreground font-mono truncate">{sourceRepo.replace("https://github.com/", "") || "—"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Destino:</span>
+                  <span className="text-foreground font-mono truncate">{destRepo.replace("https://github.com/", "") || "—"}</span>
+                </div>
+              </div>
 
-        {/* Cooldown button */}
-        {cooldown > 0 && (
-          <button className="btn-primary-glow w-full flex items-center justify-center gap-2 opacity-80" disabled>
-            <GitBranch size={18} />
-            Aguarde {cooldown} min
-          </button>
-        )}
+              {(progressStatus === "success" || progressStatus === "error") && (
+                <button onClick={closeProgress} className="text-primary text-sm underline w-full text-center">
+                  Fechar
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* New Remix Form */}
-        <div className="glass-card p-6">
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="glass-card p-6"
+        >
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
               <GitBranch size={20} className="text-primary" />
@@ -326,7 +382,7 @@ const Dashboard = () => {
 
           <form onSubmit={handleRemix} className="space-y-4">
             <div>
-              <label className="block text-primary text-sm mb-1.5">Repositório Mãe (Origem)</label>
+              <label className="block text-primary text-sm mb-1.5 font-medium">Repositório Mãe (Origem)</label>
               <input
                 type="url"
                 placeholder="https://github.com/usuario/repositorio"
@@ -338,13 +394,17 @@ const Dashboard = () => {
             </div>
 
             <div className="flex justify-center">
-              <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center">
+              <motion.div
+                className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center"
+                animate={{ rotate: loading ? 360 : 0 }}
+                transition={{ duration: 2, repeat: loading ? Infinity : 0, ease: "linear" }}
+              >
                 <ArrowDownUp size={18} className="text-primary" />
-              </div>
+              </motion.div>
             </div>
 
             <div>
-              <label className="block text-primary text-sm mb-1.5">Repositório Filha (Destino)</label>
+              <label className="block text-primary text-sm mb-1.5 font-medium">Repositório Filha (Destino)</label>
               <input
                 type="url"
                 placeholder="https://github.com/usuario/repositorio"
@@ -355,19 +415,23 @@ const Dashboard = () => {
               />
             </div>
 
-            <div className="flex items-center justify-between bg-input rounded-lg px-4 py-3">
+            <div className="flex items-center justify-between bg-input rounded-xl px-4 py-3.5">
               <span className="text-foreground text-sm">Mesma conta GitHub?</span>
               <button
                 type="button"
                 onClick={() => setSameAccount(!sameAccount)}
-                className={`w-12 h-6 rounded-full transition-colors flex items-center px-0.5 ${sameAccount ? "bg-primary" : "bg-border"}`}
+                className={`w-12 h-6 rounded-full transition-all duration-300 flex items-center px-0.5 ${sameAccount ? "bg-primary shadow-[0_0_12px_hsl(var(--purple-glow)/0.4)]" : "bg-border"}`}
               >
-                <div className={`w-5 h-5 rounded-full bg-background transition-transform ${sameAccount ? "translate-x-6" : ""}`} />
+                <motion.div
+                  className="w-5 h-5 rounded-full bg-foreground"
+                  animate={{ x: sameAccount ? 24 : 0 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                />
               </button>
             </div>
 
             <div>
-              <label className="block text-primary text-sm mb-1.5">Token GitHub (Origem)</label>
+              <label className="block text-primary text-sm mb-1.5 font-medium">Token GitHub (Origem)</label>
               <div className="relative">
                 <input
                   type={showToken ? "text" : "password"}
@@ -380,7 +444,7 @@ const Dashboard = () => {
                 <button
                   type="button"
                   onClick={() => setShowToken(!showToken)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -397,47 +461,61 @@ const Dashboard = () => {
               Como criar o token?
             </button>
 
-            {showTokenHelp && (
-              <div className="glass-card p-5 space-y-4">
-                {[
-                  { step: 1, title: "Acesse a página de tokens", desc: "github.com/settings/tokens/new" },
-                  { step: 2, title: "Escolha o tipo de token", desc: "Clique em Generate new token (classic)" },
-                  { step: 3, title: "Dê um nome ao token", desc: "No campo Note, coloque algo como jtc-gitremix" },
-                  { step: 4, title: "Marque a permissão 'repo'", desc: "Na lista de scopes, marque ☑ repo (Full control)" },
-                  { step: 5, title: "Gere e copie o token", desc: "Clique em Generate token e copie ghp_..." },
-                ].map((item) => (
-                  <div key={item.step} className="flex gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                      <span className="text-primary-foreground font-bold text-sm">{item.step}</span>
+            <AnimatePresence>
+              {showTokenHelp && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="glass-card p-5 space-y-4">
+                    {[
+                      { step: 1, title: "Acesse a página de tokens", desc: "github.com/settings/tokens/new" },
+                      { step: 2, title: "Escolha o tipo de token", desc: "Clique em Generate new token (classic)" },
+                      { step: 3, title: "Dê um nome ao token", desc: "No campo Note, coloque algo como jtc-gitremix" },
+                      { step: 4, title: "Marque a permissão 'repo'", desc: "Na lista de scopes, marque ☑ repo (Full control)" },
+                      { step: 5, title: "Gere e copie o token", desc: "Clique em Generate token e copie ghp_..." },
+                    ].map((item) => (
+                      <div key={item.step} className="flex gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-[hsl(var(--cyan-glow))] flex items-center justify-center flex-shrink-0">
+                          <span className="text-primary-foreground font-bold text-sm">{item.step}</span>
+                        </div>
+                        <div>
+                          <p className="text-foreground font-semibold text-sm">{item.title}</p>
+                          <p className="text-muted-foreground text-xs font-mono">{item.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="bg-[hsl(var(--warning)/0.1)] border border-[hsl(var(--warning)/0.3)] rounded-xl p-3">
+                      <p className="text-[hsl(var(--warning))] text-xs">⚠️ O token só aparece uma vez! Copie e guarde em local seguro.</p>
                     </div>
-                    <div>
-                      <p className="text-foreground font-semibold text-sm">{item.title}</p>
-                      <p className="text-muted-foreground text-xs font-mono">{item.desc}</p>
-                    </div>
+                    <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener" className="text-primary text-sm inline-flex items-center gap-1 hover:underline">
+                      Criar token agora ↗
+                    </a>
                   </div>
-                ))}
-                <div className="bg-warning/10 border border-warning/30 rounded-lg p-3">
-                  <p className="text-warning text-xs">⚠️ O token só aparece uma vez! Copie e guarde em local seguro.</p>
-                </div>
-                <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener" className="text-primary text-sm inline-flex items-center gap-1">
-                  Criar token agora ↗
-                </a>
-              </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <button
               type="submit"
-              disabled={loading || cooldown > 0 || credits <= 0}
-              className="btn-primary-glow w-full flex items-center justify-center gap-2 mt-4 disabled:opacity-50"
+              disabled={loading || remixesRemaining <= 0 || credits <= 0}
+              className="btn-primary-glow w-full flex items-center justify-center gap-2 mt-4"
             >
               <GitBranch size={18} />
-              {loading ? "Processando..." : "Iniciar Remix"}
+              {loading ? "Processando..." : remixesRemaining <= 0 ? `Aguarde ${refreshCountdown || "..."}` : "Iniciar Remix"}
             </button>
           </form>
-        </div>
+        </motion.div>
 
         {/* History */}
-        <div className="glass-card p-6">
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="glass-card p-6"
+        >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
@@ -463,14 +541,14 @@ const Dashboard = () => {
             />
           </div>
 
-          <div className="flex gap-2 mb-4">
+          <div className="flex gap-2 mb-4 flex-wrap">
             {["all", "success", "error", "processing"].map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
-                className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
+                className={`text-xs px-3 py-1.5 rounded-full transition-all duration-300 ${
                   statusFilter === s
-                    ? "bg-primary/15 text-primary border border-primary/30"
+                    ? "bg-primary/15 text-primary border border-primary/30 shadow-[0_0_10px_hsl(var(--purple-glow)/0.15)]"
                     : "text-muted-foreground border border-border hover:border-primary/20"
                 }`}
               >
@@ -483,8 +561,14 @@ const Dashboard = () => {
             {filteredRemixes.length === 0 ? (
               <p className="text-muted-foreground text-sm text-center py-4">Nenhum remix encontrado.</p>
             ) : (
-              filteredRemixes.map((remix) => (
-                <div key={remix.id} className="border-t border-border pt-3">
+              filteredRemixes.map((remix, idx) => (
+                <motion.div
+                  key={remix.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className="border-t border-border pt-3"
+                >
                   <div className="flex items-start gap-3">
                     {statusIcon(remix.status)}
                     <div className="flex-1 min-w-0">
@@ -495,11 +579,11 @@ const Dashboard = () => {
                       </p>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ))
             )}
           </div>
-        </div>
+        </motion.div>
 
         <footer className="text-center text-muted-foreground text-xs py-4">
           <p>
