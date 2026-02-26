@@ -30,9 +30,8 @@ const plans = [
 const Credits = () => {
   const navigate = useNavigate();
 
-  const handlePurchase = (planId: string) => {
-    // Navega para a página de pagamento passando o ID do plano selecionado
-    navigate(`/payment?plan=${planId}`);
+  const handlePurchase = (planId: string, credits: number) => {
+    navigate(`/payment?plan=${planId}&credits=${credits}`);
   };
 
   return (
@@ -54,16 +53,16 @@ const Credits = () => {
               <ul className="space-y-3">
                 {plan.features.map((feature) => (
                   <li key={feature} className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-green-500" />
+                    <Check className="h-4 w-4 text-primary" />
                     <span className="text-sm">{feature}</span>
                   </li>
                 ))}
               </ul>
             </CardContent>
             <CardFooter>
-              <Button 
-                className="w-full" 
-                onClick={() => handlePurchase(plan.id)}
+              <Button
+                className="w-full"
+                onClick={() => handlePurchase(plan.id, plan.credits)}
               >
                 Comprar Agora
               </Button>
