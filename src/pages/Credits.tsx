@@ -1,77 +1,89 @@
-import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Check } from 'lucide-react';
+import { useState } from "react";
+import { Minus, Plus, QrCode } from "lucide-react";
 
-const plans = [
-  {
-    id: 'starter',
-    name: 'Starter',
-    price: 'R$ 29',
-    credits: 100,
-    features: ['100 créditos', 'Suporte via email', 'Acesso básico']
-  },
-  {
-    id: 'pro',
-    name: 'Pro',
-    price: 'R$ 99',
-    credits: 500,
-    features: ['500 créditos', 'Suporte prioritário', 'Acesso completo', 'Relatórios detalhados']
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    price: 'R$ 249',
-    credits: 1500,
-    features: ['1500 créditos', 'Gerente de conta', 'API access', 'Personalização']
-  }
-];
+export default function Credits() {
+  const [credits, setCredits] = useState(1);
+  const [showQR, setShowQR] = useState(false);
+  
+  const costPerCredit = 0.50;
 
-const Credits = () => {
-  const navigate = useNavigate();
-
-  const handlePurchase = (planId: string, credits: number) => {
-    navigate(`/payment?plan=${planId}&credits=${credits}`);
+  const handleDecrease = () => {
+    if (credits > 1) {
+      setCredits(credits - 1);
+      setShowQR(false); // Reseta o QR code se a quantidade de créditos mudar
+    }
   };
 
-  return (
-    <div className="container mx-auto py-12 px-4">
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold mb-4">Comprar Créditos</h1>
-        <p className="text-muted-foreground">Escolha o melhor plano para as suas necessidades</p>
-      </div>
+  const handleIncrease = () => {
+    setCredits(credits + 1);
+    setShowQR(false); // Reseta o QR code se a quantidade de créditos mudar
+  };
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {plans.map((plan) => (
-          <Card key={plan.id} className="flex flex-col">
-            <CardHeader>
-              <CardTitle className="text-2xl">{plan.name}</CardTitle>
-              <CardDescription>{plan.credits} créditos</CardDescription>
-            </CardHeader>
-            <CardContent className="flex-grow">
-              <div className="text-3xl font-bold mb-6">{plan.price}</div>
-              <ul className="space-y-3">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-primary" />
-                    <span className="text-sm">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-            <CardFooter>
-              <Button
-                className="w-full"
-                onClick={() => handlePurchase(plan.id, plan.credits)}
+  const handleGeneratePix = () => {
+    setShowQR(true);
+  };
+
+  const total = (credits * costPerCredit).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  return (
+    <div className="container mx-auto p-4 max-w-md mt-10">
+      <div className="border rounded-xl shadow-sm bg-card text-card-foreground">
+        <div className="flex flex-col space-y-1.5 p-6 border-b">
+          <h3 className="font-semibold leading-none tracking-tight text-2xl">Loja de Créditos</h3>
+          <p className="text-sm text-muted-foreground">Compre créditos para usar na plataforma.</p>
+        </div>
+        
+        <div className="p-6 space-y-6">
+          <div className="flex flex-col items-center space-y-6">
+            <div className="bg-muted px-4 py-2 rounded-full text-sm font-medium text-foreground">
+              1 Crédito = R$ 0,50
+            </div>
+            
+            <div className="flex items-center space-x-6">
+              <button 
+                onClick={handleDecrease}
+                className="inline-flex items-center justify-center rounded-full text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring border border-input bg-background hover:bg-accent hover:text-accent-foreground h-12 w-12"
               >
-                Comprar Agora
-              </Button>
-            </CardFooter>
-          </Card>
-        ))}
+                <Minus className="h-5 w-5" />
+              </button>
+              <div className="text-5xl font-bold w-20 text-center text-foreground">{credits}</div>
+              <button 
+                onClick={handleIncrease}
+                className="inline-flex items-center justify-center rounded-full text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring border border-input bg-background hover:bg-accent hover:text-accent-foreground h-12 w-12"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="text-3xl font-black text-primary">
+              {total}
+            </div>
+          </div>
+
+          {showQR && (
+            <div className="flex flex-col items-center space-y-4 p-6 border rounded-xl bg-muted/30 animate-in fade-in zoom-in duration-300">
+              <div className="bg-white p-4 rounded-xl shadow-sm border">
+                {/* Ícone representando o QR Code. Substitua por uma tag <img /> ao integrar com a API do PIX */}
+                <QrCode className="w-48 h-48 text-zinc-900" strokeWidth={1} />
+              </div>
+              <p className="text-sm text-center text-muted-foreground font-medium">
+                Escaneie o QR Code acima com o app do seu banco.
+              </p>
+              <div className="w-full bg-background p-3 rounded-lg border text-xs text-center font-mono break-all text-muted-foreground select-all">
+                00020101021126580014br.gov.bcb.pix0136{credits * 100}1234567890520400005303986540550.005802BR5913...
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="p-6 pt-0">
+          <button 
+            onClick={handleGeneratePix}
+            className="inline-flex items-center justify-center rounded-lg text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring bg-primary text-primary-foreground hover:bg-primary/90 h-12 px-8 w-full shadow-sm"
+          >
+            {showQR ? "Atualizar PIX" : "Gerar PIX Automático"}
+          </button>
+        </div>
       </div>
     </div>
   );
-};
-
-export default Credits;
+}
