@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   GitBranch,
   Loader2,
@@ -53,6 +58,11 @@ const Dashboard = () => {
   const handleRemix = async () => {
     if (!sourceRepo || !destRepo || !githubToken) {
       toast.error("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    if (!sameAccount && !destToken) {
+      toast.error("O token do repositório de destino é obrigatório.");
       return;
     }
 
@@ -135,19 +145,53 @@ const Dashboard = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
-                <span className="text-base">🔐</span> Token de Acesso (Origem)
-              </label>
-              <input
-                type="password"
-                placeholder="ghp_xxxxx"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                className="input-dark w-full"
-                disabled={remixing}
-              />
-            </div>
+            {sameAccount ? (
+              <div className="token-group">
+                <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
+                  <span className="text-base">🔐</span> Token de Acesso (Origem e Destino)
+                </label>
+                <input
+                  type="password"
+                  placeholder="ghp_xxxxx (Token de acesso pessoal com permissões de repo)"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  className="input-dark w-full"
+                  required
+                  disabled={remixing}
+                />
+              </div>
+            ) : (
+              <div className="token-group space-y-4">
+                <div>
+                  <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
+                    <span className="text-base">🔐</span> Token de Acesso (Origem)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="ghp_xxxxx (Token de acesso pessoal com permissões de repo)"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    className="input-dark w-full"
+                    required
+                    disabled={remixing}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
+                    <span className="text-base">🔑</span> Token de Acesso (Destino)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="ghp_xxxxx (Token de acesso pessoal com permissões de repo)"
+                    value={destToken}
+                    onChange={(e) => setDestToken(e.target.value)}
+                    className="input-dark w-full"
+                    required
+                    disabled={remixing}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-2">
               <input
@@ -163,25 +207,9 @@ const Dashboard = () => {
               </label>
             </div>
 
-            {!sameAccount && (
-              <div>
-                <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
-                  <span className="text-base">🔐</span> Token de Acesso (Destino)
-                </label>
-                <input
-                  type="password"
-                  placeholder="ghp_xxxxx"
-                  value={destToken}
-                  onChange={(e) => setDestToken(e.target.value)}
-                  className="input-dark w-full"
-                  disabled={remixing}
-                />
-              </div>
-            )}
-
             <button
               onClick={handleRemix}
-              disabled={remixing || !sourceRepo || !destRepo || !githubToken}
+              disabled={remixing || !sourceRepo || !destRepo || !githubToken || (!sameAccount && !destToken)}
               className="btn-primary-glow w-full flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {remixing ? (
