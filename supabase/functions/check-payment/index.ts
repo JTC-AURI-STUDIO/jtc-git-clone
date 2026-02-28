@@ -53,14 +53,12 @@ serve(async (req) => {
     if (action === "cancel") {
       let dbUpdated = false;
       if (payment_db_id) {
-        // Cancel locally in the DB forever
         const { error } = await supabase.from("payments").update({ status: "cancelled" }).eq("id", payment_db_id);
         dbUpdated = !error;
       }
       
       let mpCancelled = false;
       if (payment_id) {
-        // Cancel explicitly in Mercado Pago to invalidate the PIX QR Code
         try {
           const cancelRes = await fetch(`https://api.mercadopago.com/v1/payments/${payment_id}`, {
             method: "PUT",

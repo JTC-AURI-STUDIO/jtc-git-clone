@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Github, LogOut, Loader2, GitBranch, CreditCard, History, User, Menu } from "lucide-react";
+import { LogOut, Loader2, GitBranch, CreditCard, History, User, Menu } from "lucide-react";
 import { Button } from "./ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
