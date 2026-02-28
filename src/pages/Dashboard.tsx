@@ -10,6 +10,8 @@ import {
   XCircle,
   Clock,
   ExternalLink,
+  Github, // Importado para ícone do GitHub
+  CreditCard, // Importado para ícone de créditos
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -134,6 +136,54 @@ const Dashboard = () => {
       <AppHeader credits={credits} />
 
       <main className="pt-20 px-4 max-w-3xl mx-auto space-y-8">
+        {/* Seção de Créditos e Ações Rápidas */}
+        <div className="grid-cols-1 md:grid-cols-2 gap-4 flex-col md:flex-row flex">
+          <Card className="glass-card flex-1 border-0">
+            <CardHeader>
+              <CardTitle className="text-foreground text-base flex items-center justify-between">
+                Seus Créditos
+                <CreditCard className="h-5 w-5 text-primary" />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center justify-center py-6">
+              <p className="text-5xl font-extrabold text-primary mb-2">{credits}</p>
+              <p className="text-sm text-center text-muted-foreground">Créditos disponíveis para remixes.</p>
+              <Button
+                variant="outline"
+                className="mt-4 btn-primary-outline"
+                onClick={() => navigate("/credits")}
+              >
+                Comprar mais créditos
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card flex-1 border-0">
+            <CardHeader>
+              <CardTitle className="text-foreground text-base flex items-center justify-between">
+                Ações Rápidas
+                <Github className="h-5 w-5 text-primary" />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center justify-center py-6 space-y-3">
+              <Button
+                  variant="outline"
+                  className="w-full btn-primary-outline"
+                  onClick={() => window.open("https://github.com/settings/tokens", "_blank")}
+              >
+                Gerar Token GitHub Pessoal
+              </Button>
+              <Button
+                  variant="outline"
+                  className="w-full btn-primary-outline"
+                  onClick={() => navigate("/history")}
+              >
+                Ver Histórico de Pagamentos
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Remix Form */}
         <Card className="glass-card border-0">
           <CardHeader>
