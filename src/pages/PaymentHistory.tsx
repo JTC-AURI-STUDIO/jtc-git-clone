@@ -1,12 +1,13 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, Clock, CheckCircle2, XCircle, Filter, PackageOpen } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Transaction {
   id: string;
@@ -17,12 +18,15 @@ interface Transaction {
   mercadopago_payment_id?: string;
 }
 
+type FilterStatus = 'all' | 'pending' | 'approved' | 'cancelled';
+
 const PaymentHistory = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterStatus>('all');
 
   useEffect(() => {
     if (!user) {
@@ -62,7 +66,7 @@ const PaymentHistory = () => {
       }
 
       setTransactions((prev) =>
-        prev.filter((item) => item.id !== transaction.id) 
+        prev.map((item) => (item.id === transaction.id ? { ...item, status: 'cancelled' } : item))
       );
       toast.success("Pagamento cancelado.");
     } catch (err) {
@@ -76,13 +80,25 @@ const PaymentHistory = () => {
     switch (status) {
       case "completed":
       case "approved":
-        return <Badge><CheckCircle2 className="w-3 h-3 mr-1" /> Aprovado</Badge>;
+        return <Badge className="bg-green-500 hover:bg-green-500/80"><CheckCircle2 className="w-3 h-3 mr-1" /> Aprovado</Badge>;
       case "pending":
         return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" /> Aguardando</Badge>;
-      default:
+      case "cancelled":
         return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" /> Cancelado</Badge>;
+      default:
+        return <Badge variant="outline">Desconhecido</Badge>;
     }
   };
+
+  const filteredTransactions = useMemo(() => {
+    if (filter === 'all') {
+      return transactions;
+    }
+    return transactions.filter(t => {
+      const statusLowerCase = t.status.toLowerCase();
+      return statusLowerCase === filter || (filter === 'approved' && statusLowerCase === 'completed');
+    });
+  }, [transactions, filter]);
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -96,27 +112,48 @@ const PaymentHistory = () => {
         </Button>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Histórico de Pagamentos</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-2xl font-bold">Histórico de Pagamentos</CardTitle>
+            <div className="flex items-center space-x-2">
+              <Filter className="w-4 h-4 text-muted-foreground" />
+              <Select value={filter} onValueChange={(value: FilterStatus) => setFilter(value)}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Filtrar por status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="pending">Aguardando</SelectItem>
+                  <SelectItem value="approved">Aprovado</SelectItem>
+                  <SelectItem value="cancelled">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {loading ? (
                 <p className="text-center text-muted-foreground py-8">Carregando...</p>
-              ) : transactions.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">Nenhuma transação encontrada.</p>
+              ) : filteredTransactions.length === 0 ? (
+                <div className="py-16 flex flex-col items-center justify-center text-muted-foreground">
+                  <PackageOpen className="w-12 h-12 mb-4" />
+                  <p className="text-lg">Nenhuma transação encontrada</p>
+                  {filter !== 'all' && (
+                    <p className="text-sm">para o status "{filter}".</p>
+                  )}
+                </div>
               ) : (
-                transactions.map((transaction) => (
+                filteredTransactions.map((transaction) => (
                   <div
                     key={transaction.id}
-                    className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 border rounded-lg"
+                    className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 border rounded-lg bg-card shadow-sm"
                   >
                     <div>
-                      <p className="font-medium">R$ {Number(transaction.amount).toFixed(2)}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="font-medium text-lg">R$ {Number(transaction.amount).toFixed(2)}</p>
+                      <p className="text-sm text-muted-foreground mt-0.5">
                         {transaction.credits_purchased} créditos
                       </p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         {new Date(transaction.created_at).toLocaleDateString('pt-BR', {
                           day: '2-digit',
                           month: '2-digit',
@@ -134,7 +171,7 @@ const PaymentHistory = () => {
                         <Button
                           size="sm"
                           onClick={() =>
-                            navigate(`/payment?credits=${transaction.credits_purchased}&payment_id=${transaction.mercadopago_payment_id}`)
+                            navigate(`/payment?payment_db_id=${transaction.id}&credits=${transaction.credits_purchased}&payment_id=${transaction.mercadopago_payment_id}`)
                           }
                         >
                           Pagar agora
