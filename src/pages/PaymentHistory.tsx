@@ -14,6 +14,7 @@ interface Transaction {
   status: string;
   created_at: string;
   credits_purchased: number;
+  mercadopago_payment_id?: string;
 }
 
 const PaymentHistory = () => {
@@ -32,7 +33,7 @@ const PaymentHistory = () => {
     const fetchTransactions = async () => {
       const { data, error } = await supabase
         .from("payments")
-        .select("id, amount, status, created_at, credits_purchased")
+        .select("id, amount, status, created_at, credits_purchased, mercadopago_payment_id")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
@@ -51,6 +52,7 @@ const PaymentHistory = () => {
       const { data, error } = await supabase.functions.invoke("check-payment", {
         body: {
           payment_db_id: transaction.id,
+          payment_id: transaction.mercadopago_payment_id,
           action: "cancel",
         },
       });
@@ -129,22 +131,24 @@ const PaymentHistory = () => {
                       {getStatusBadge(transaction.status)}
 
                       {transaction.status === "pending" && (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => navigate(`/payment?credits=${transaction.credits_purchased}`)}
-                          >
-                            Pagar agora
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={cancelingId === transaction.id}
-                            onClick={() => handleCancel(transaction)}
-                          >
-                            {cancelingId === transaction.id ? "Cancelando..." : "Cancelar"}
-                          </Button>
-                        </>
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            navigate(`/payment?credits=${transaction.credits_purchased}&payment_id=${transaction.mercadopago_payment_id}`)
+                          }
+                        >
+                          Pagar agora
+                        </Button>
+                      )}
+                      {transaction.status === "pending" && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={cancelingId === transaction.id}
+                          onClick={() => handleCancel(transaction)}
+                        >
+                          {cancelingId === transaction.id ? "Cancelando..." : "Cancelar"}
+                        </Button>
                       )}
                     </div>
                   </div>
