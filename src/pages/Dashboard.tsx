@@ -196,15 +196,16 @@ const Dashboard = () => {
         {/* Remix Form */}
         <Card className="glass-card border-0">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-foreground">
+            <div className="flex items-center gap-2 text-foreground">
               <GitBranch className="h-5 w-5 text-primary" />
-              Novo Remix
-            </CardTitle>
+              <CardTitle className="text-foreground text-base">Novo Remix</CardTitle>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">Clone e personalize um repositório do GitHub em poucos passos.</p>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="block text-sm text-primary mb-1.5">
-                Repositório de origem (URL GitHub)
+              <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
+                <span className="text-base">🔗</span> Repositório de Origem
               </label>
               <input
                 type="text"
@@ -217,8 +218,8 @@ const Dashboard = () => {
             </div>
 
             <div>
-              <label className="block text-sm text-primary mb-1.5">
-                Repositório de destino (URL GitHub)
+              <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
+                <span className="text-base">🎯</span> Repositório de Destino
               </label>
               <input
                 type="text"
@@ -231,8 +232,8 @@ const Dashboard = () => {
             </div>
 
             <div>
-              <label className="block text-sm text-primary mb-1.5">
-                Token GitHub (origem)
+              <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
+                <span className="text-base">🔐</span> Token de Acesso (Origem)
               </label>
               <input
                 type="password"
@@ -253,15 +254,15 @@ const Dashboard = () => {
                 className="accent-primary"
                 disabled={remixing}
               />
-              <label htmlFor="same-account" className="text-sm text-muted-foreground">
-                Mesma conta GitHub para origem e destino
+              <label htmlFor="same-account" className="text-sm text-muted-foreground font-medium flex items-center gap-1.5">
+                <span className="text-base">🔄</span> Usar a mesma conta GitHub para origem e destino
               </label>
             </div>
 
             {!sameAccount && (
               <div>
-                <label className="block text-sm text-primary mb-1.5">
-                  Token GitHub (destino)
+                <label className="block text-sm text-primary mb-1.5 font-medium flex items-center gap-1.5">
+                  <span className="text-base">🔐</span> Token de Acesso (Destino)
                 </label>
                 <input
                   type="password"
@@ -286,8 +287,7 @@ const Dashboard = () => {
                 </>
               ) : (
                 <>
-                  <GitBranch className="h-5 w-5" />
-                  Iniciar Remix (1 crédito)
+                  <span className="text-base">💳</span> Iniciar Remix (1 crédito)
                 </>
               )}
             </button>
