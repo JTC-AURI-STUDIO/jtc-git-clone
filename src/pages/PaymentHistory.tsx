@@ -60,9 +60,7 @@ const PaymentHistory = () => {
       }
 
       setTransactions((prev) =>
-        prev.map((item) =>
-          item.id === transaction.id ? { ...item, status: "cancelled" } : item
-        )
+        prev.filter((item) => item.id !== transaction.id) 
       );
       toast.success("Pagamento cancelado.");
     } catch (err) {
