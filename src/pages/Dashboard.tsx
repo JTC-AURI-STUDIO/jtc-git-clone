@@ -10,8 +10,10 @@ import {
   XCircle,
   Clock,
   ExternalLink,
-  Github, // Importado para ícone do GitHub
-  CreditCard, // Importado para ícone de créditos
+  Github,
+  CreditCard,
+  History,
+  User
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -171,14 +173,21 @@ const Dashboard = () => {
                   className="w-full btn-primary-outline"
                   onClick={() => window.open("https://github.com/settings/tokens", "_blank")}
               >
-                Gerar Token GitHub Pessoal
+                <Github className="h-4 w-4 mr-2" /> Gerar Token GitHub Pessoal
               </Button>
               <Button
                   variant="outline"
                   className="w-full btn-primary-outline"
                   onClick={() => navigate("/history")}
               >
-                Ver Histórico de Pagamentos
+                <History className="h-4 w-4 mr-2" /> Ver Histórico de Pagamentos
+              </Button>
+               <Button
+                  variant="outline"
+                  className="w-full btn-primary-outline"
+                  onClick={() => navigate("/profile")}
+              >
+                <User className="h-4 w-4 mr-2" /> Meu Perfil
               </Button>
             </CardContent>
           </Card>
