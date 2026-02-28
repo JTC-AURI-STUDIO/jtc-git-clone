@@ -77,7 +77,7 @@ const PaymentHistory = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    switch (status.toLowerCase()) { // Convert to lowercase for comparison
       case "completed":
       case "approved":
         return <Badge className="bg-green-500 hover:bg-green-500/80"><CheckCircle2 className="w-3 h-3 mr-1" /> Aprovado</Badge>;
@@ -96,7 +96,11 @@ const PaymentHistory = () => {
     }
     return transactions.filter(t => {
       const statusLowerCase = t.status.toLowerCase();
-      return statusLowerCase === filter || (filter === 'approved' && statusLowerCase === 'completed');
+      // Check for both 'approved' and 'completed' when filter is 'approved'
+      if (filter === 'approved') {
+        return statusLowerCase === 'approved' || statusLowerCase === 'completed';
+      }
+      return statusLowerCase === filter;
     });
   }, [transactions, filter]);
 
@@ -167,7 +171,7 @@ const PaymentHistory = () => {
                     <div className="flex items-center gap-2 flex-wrap">
                       {getStatusBadge(transaction.status)}
 
-                      {transaction.status === "pending" && (
+                      {transaction.status.toLowerCase() === "pending" && ( // Convert to lowercase
                         <Button
                           size="sm"
                           onClick={() =>
@@ -177,7 +181,7 @@ const PaymentHistory = () => {
                           Pagar agora
                         </Button>
                       )}
-                      {transaction.status === "pending" && (
+                      {transaction.status.toLowerCase() === "pending" && ( // Convert to lowercase
                         <Button
                           size="sm"
                           variant="destructive"
