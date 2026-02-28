@@ -16,13 +16,6 @@ import { toast } from "sonner";
 import AppHeader from "@/components/AppHeader";
 import SpaceBackground from "@/components/SpaceBackground";
 
-interface Remix {
-  id: string;
-  source_repo: string;
-  destination_repo: string;
-  status: string;
-  created_at: string;
-}
 
 const Dashboard = () => {
   const navigate = useNavigate();
